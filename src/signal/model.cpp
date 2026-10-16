@@ -177,7 +177,7 @@ Config default_config()
 {
     // ps5-signal's own default: "Shave and a Haircut", a run through the LEDs, then the colour it keeps.
     Config config;
-    const int pauses[] = {300, 150, 150, 300, 600, 300, kDefaultPauseMs};
+    const int pauses[] = {300, 150, 150, 300, 600, 650, kDefaultPauseMs};
     for (int i = 0; i < 7; ++i)
         config.beeps.push_back({i < 5 ? 1 : 3, pauses[i]});
     const auto named = [](LedName name, int ms)
