@@ -1,7 +1,7 @@
 // Signal Companion - Screen "Startup": edit the tune and the light ps5-signal plays when it starts.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Two forms side by side: the tune on the left (up to 16 beeps, each a tone
+// Two forms side by side: the tune on the left (up to 24 beeps, each a tone
 // and the wait until the next), the light on the right (up to 32 steps, each
 // a colour or a brightness and how long it shows). Both can be tried on the
 // console and are saved together with PUT /config; the kept colour in the
@@ -75,8 +75,8 @@ constexpr int kMixOption = kNamedOptions + kLevelOptions;
 
 constexpr const char *kTechniques[] = {
     "ps5-signal plays this tune and light every time it starts",
-    ("Up to 16 beeps: a tone and the wait until the next one. The service plays 6 beeps at a "
-     "time, so \"Play it\" plays the first 6"),
+    ("Up to 24 beeps: a tone and the wait until the next one; the waits 10 seconds at most in "
+     "all"),
     "Up to 32 light steps: a colour or a brightness, and how long it shows",
     "Square saves both to config.json on the console",
 };
@@ -173,6 +173,13 @@ class StartupScreen final : public app::Concept
                     act(form.changed_id(), link, feedback);
             }
         }
+        if (over_)
+        {
+            over_ = false;
+            ui::refuse(feedback, tune_.style, input, edge_, column_ == 0 ? kTuneForm.cx() : kLightForm.cx());
+            toasts_.push(ui::StatusKind::warning, "10 seconds at most",
+                         "The waits of the tune, and the steps of the light, add up to 10 s at most");
+        }
         enable(link);
 
         signal::Reply reply;
@@ -251,7 +258,7 @@ class StartupScreen final : public app::Concept
         tune_.add_action(kAddBeep, "Add a beep");
         tune_.add_action(kRemoveBeep, "Remove the last beep");
         tune_.add_action(kPlayTune, "Play it").description =
-            "The service plays 6 beeps at a time: a longer tune plays its first 6";
+            "Plays the tune on the console";
         tune_.add_header("Config");
         tune_.add_action(kSave, "Save to the console").description =
             "Writes the tune and the light to config.json";
@@ -376,7 +383,15 @@ class StartupScreen final : public app::Concept
         }
         else if (id >= kMsBase)
         {
-            edit_.leds[static_cast<std::size_t>(id - kMsBase)].ms = light_.stepper_value(id);
+            int &ms = edit_.leds[static_cast<std::size_t>(id - kMsBase)].ms;
+            const int before = ms;
+            ms = light_.stepper_value(id);
+            if (signal::light_ms(edit_.leds) > signal::kMaxTotalMs)
+            {
+                ms = before; // 10 seconds in all at most
+                light_.set_stepper(id, before);
+                over_ = true;
+            }
         }
         else if (id >= kStepBase)
         {
@@ -399,8 +414,15 @@ class StartupScreen final : public app::Concept
         }
         else if (id >= kPauseBase)
         {
-            edit_.beeps[static_cast<std::size_t>(id - kPauseBase)].pause_ms =
-                tune_.stepper_value(id);
+            int &pause = edit_.beeps[static_cast<std::size_t>(id - kPauseBase)].pause_ms;
+            const int before = pause;
+            pause = tune_.stepper_value(id);
+            if (signal::tune_ms(edit_.beeps) > signal::kMaxTotalMs)
+            {
+                pause = before; // 10 seconds in all at most
+                tune_.set_stepper(id, before);
+                over_ = true;
+            }
         }
         else if (id >= kToneBase)
         {
@@ -413,12 +435,18 @@ class StartupScreen final : public app::Concept
         const bool online = link.online();
         const int beeps = static_cast<int>(edit_.beeps.size());
         const int steps = static_cast<int>(edit_.leds.size());
-        tune_.set_disabled(kAddBeep, !tune_on_ || beeps >= signal::kMaxConfigBeeps);
+        // A new beep copies the last, whose pause then counts too.
+        tune_.set_disabled(kAddBeep, !tune_on_ || beeps >= signal::kMaxConfigBeeps ||
+                                         signal::tune_ms(edit_.beeps) +
+                                                 edit_.beeps.back().pause_ms >
+                                             signal::kMaxTotalMs);
         tune_.set_disabled(kRemoveBeep, !tune_on_ || beeps <= 1);
         tune_.set_disabled(kPlayTune, !online || !tune_on_);
         tune_.set_disabled(kSave, !online || !link.has_config() || !unsaved(link));
         tune_.set_disabled(kRevert, !link.has_config() || !unsaved(link));
-        light_.set_disabled(kAddStep, !light_on_ || steps >= signal::kMaxLedSteps);
+        light_.set_disabled(kAddStep, !light_on_ || steps >= signal::kMaxLedSteps ||
+                                          signal::light_ms(edit_.leds) + edit_.leds.back().ms >
+                                              signal::kMaxTotalMs);
         light_.set_disabled(kRemoveStep, !light_on_ || steps <= 1);
         light_.set_disabled(kPlayLight, !online || !light_on_);
     }
@@ -670,13 +698,15 @@ class StartupScreen final : public app::Concept
     void draw_column_titles(ui::Painter &paint, const signal::Link &link) const
     {
         const ui::Theme &look = paint.theme();
-        char text[48];
-        std::snprintf(text, sizeof(text), "TUNE  %zu / %d BEEPS", edit_.beeps.size(),
-                      signal::kMaxConfigBeeps);
+        char text[80];
+        std::snprintf(text, sizeof(text), "TUNE  %zu / %d BEEPS  \xC2\xB7  %.1f / 10 S",
+                      edit_.beeps.size(), signal::kMaxConfigBeeps,
+                      static_cast<double>(signal::tune_ms(edit_.beeps)) / 1000.0);
         paint.label(text, kTuneForm.x, kTop - 22.0f, 20.0f,
                     column_ == 0 ? look.text : look.text_muted);
-        std::snprintf(text, sizeof(text), "LIGHT  %zu / %d STEPS", edit_.leds.size(),
-                      signal::kMaxLedSteps);
+        std::snprintf(text, sizeof(text), "LIGHT  %zu / %d STEPS  \xC2\xB7  %.1f / 10 S",
+                      edit_.leds.size(), signal::kMaxLedSteps,
+                      static_cast<double>(signal::light_ms(edit_.leds)) / 1000.0);
         paint.label(text, kLightForm.x, kTop - 22.0f, 20.0f,
                     column_ == 1 ? look.text : look.text_muted);
         if (unsaved(link))
@@ -706,6 +736,7 @@ class StartupScreen final : public app::Concept
     bool light_on_ = true;
     bool dirty_ = false;
     bool saving_ = false;
+    bool over_ = false; // a change was undone: it went past 10 seconds
     int playing_ = 0;            // 1 tune, 2 light: what the last request plays
     float tune_cursor_ = -1.0f;  // ms into the tune playing now; -1 for none
     float light_cursor_ = -1.0f; // ms into the light playing now

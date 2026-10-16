@@ -16,9 +16,10 @@ namespace hui::signal
 {
 
 // ---- the service's limits ----
-constexpr int kMaxApiBeeps = 6;     // one POST /beep
-constexpr int kMaxConfigBeeps = 16; // the startup tune
-constexpr int kMaxLedSteps = 32;
+constexpr int kMaxApiBeeps = 24;    // one POST /beep
+constexpr int kMaxConfigBeeps = 24; // the startup tune
+constexpr int kMaxLedSteps = 24;
+constexpr int kMaxTotalMs = 10000; // a tune's pauses, and a light's steps (times repeat), in all
 constexpr int kMinPauseMs = 100;
 constexpr int kMaxPauseMs = 2000;
 constexpr int kDefaultPauseMs = 200;
@@ -98,6 +99,10 @@ struct Status
     bool hold = false;
     Mix held;
 };
+
+// How long a tune takes: its pauses (the last beep's is unused). And a light, once.
+int tune_ms(const std::vector<BeepStep> &beeps);
+int light_ms(const std::vector<LedStep> &leds);
 
 // The service's default when config.json does not exist.
 Config default_config();

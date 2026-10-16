@@ -54,7 +54,7 @@ bool read_beeps(const JsonValue &array, int maximum, std::vector<BeepStep> &out)
             return false;
         out.push_back(step);
     }
-    return true;
+    return tune_ms(out) <= kMaxTotalMs;
 }
 
 bool read_led_step(const JsonValue &item, LedStep &step)
@@ -107,7 +107,7 @@ bool read_leds(const JsonValue &array, std::vector<LedStep> &out)
             return false;
         out.push_back(step);
     }
-    return true;
+    return light_ms(out) <= kMaxTotalMs;
 }
 
 bool empty_or_absent(const JsonValue &value)
@@ -173,13 +173,29 @@ int read_setting(const JsonValue &value)
 
 } // namespace
 
+int tune_ms(const std::vector<BeepStep> &beeps)
+{
+    int total = 0;
+    for (std::size_t i = 0; i + 1 < beeps.size(); ++i)
+        total += beeps[i].pause_ms;
+    return total;
+}
+
+int light_ms(const std::vector<LedStep> &leds)
+{
+    int total = 0;
+    for (const LedStep &step : leds)
+        total += step.ms;
+    return total;
+}
+
 Config default_config()
 {
     // ps5-signal's own default: "Shave and a Haircut", a run through the LEDs, then the colour it keeps.
     Config config;
-    const int pauses[] = {300, 150, 150, 300, 600, 650, kDefaultPauseMs};
+    const int pauses[] = {300, 150, 150, 300, 600, 300, kDefaultPauseMs};
     for (int i = 0; i < 7; ++i)
-        config.beeps.push_back({i < 5 ? 1 : 3, pauses[i]});
+        config.beeps.push_back({1, pauses[i]});
     const auto named = [](LedName name, int ms)
     {
         LedStep step;
@@ -262,12 +278,13 @@ bool parse_config(const JsonValue &root, Config &out, std::string &error)
         if (!empty_or_absent(startup["beep"]) &&
             !read_beeps(startup["beep"], kMaxConfigBeeps, config.beeps))
         {
-            error = "startup.beep: 1-16 steps with tone 0-3 and pause_ms 100-2000";
+            error = "startup.beep: 1-24 steps with tone 0-3 and pause_ms 100-2000, 10 s in all";
             return false;
         }
         if (!empty_or_absent(startup["led"]) && !read_leds(startup["led"], config.leds))
         {
-            error = "startup.led: 1-32 steps with ms 250-10000 and a level, a colour or a mix";
+            error = "startup.led: 1-24 steps with ms 250-10000, 10 s in all, and a level, a colour or "
+                    "a mix";
             return false;
         }
     }
