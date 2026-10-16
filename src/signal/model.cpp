@@ -175,16 +175,39 @@ int read_setting(const JsonValue &value)
 
 Config default_config()
 {
+    // ps5-signal's own default: "Shave and a Haircut", a run through the LEDs, then the colour it keeps.
     Config config;
-    for (const int pause : {400, 200, 200, 100, 600, 200, kDefaultPauseMs})
-        config.beeps.push_back({1, pause});
-    for (const LedName name : {LedName::blue, LedName::white, LedName::blue})
+    const int pauses[] = {300, 150, 150, 300, 600, 300, kDefaultPauseMs};
+    for (int i = 0; i < 7; ++i)
+        config.beeps.push_back({i < 5 ? 1 : 3, pauses[i]});
+    const auto named = [](LedName name, int ms)
     {
         LedStep step;
         step.name = name;
-        step.ms = 400;
-        config.leds.push_back(step);
+        step.ms = ms;
+        return step;
+    };
+    const auto mixed = [](Mix mix, int ms)
+    {
+        LedStep step;
+        step.kind = LedKind::mix;
+        step.mix = mix;
+        step.ms = ms;
+        return step;
+    };
+    for (int round = 0; round < 2; ++round)
+    {
+        config.leds.push_back(named(LedName::blue, 250));
+        config.leds.push_back(named(LedName::white, 250));
+        config.leds.push_back(named(LedName::orange, 250));
     }
+    config.leds.push_back(mixed({255, 255, 0}, 300));
+    config.leds.push_back(mixed({0, 255, 255}, 300));
+    config.leds.push_back(mixed({255, 0, 255}, 300));
+    config.leds.push_back(named(LedName::off, 250));
+    config.leds.push_back(mixed({255, 80, 200}, 800));
+    config.hold = true;
+    config.held = {255, 80, 200};
     return config;
 }
 

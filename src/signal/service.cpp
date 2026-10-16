@@ -27,6 +27,7 @@ constexpr float kAskOnline = 2.0f;            // seconds between status checks
 constexpr float kAskOffline = 3.0f;
 constexpr float kStartWait = 8.0f; // seconds the service gets to answer after a start
 constexpr float kStartAskEvery = 1.0f;
+constexpr float kQuitSettle = 1.0f; // seconds for the old service to give up its port
 constexpr std::size_t kMaxPayload = 4u << 20;
 
 #ifdef MSG_NOSIGNAL
@@ -42,8 +43,9 @@ struct Endpoint
 };
 
 constexpr Endpoint kEndpoints[] = {
-    {"GET", "/status"}, {"GET", "/config"}, {"PUT", "/config"}, {"POST", "/color"},
-    {"POST", "/beep"},  {"POST", "/led"},   {"POST", "/stop"},  {"PUSH", ""},
+    {"GET", "/status"}, {"GET", "/config"}, {"PUT", "/config"},
+    {"POST", "/color"}, {"POST", "/beep"},  {"POST", "/led"},
+    {"POST", "/stop"},  {"PUSH", ""},       {"POST", "/quit"},
 };
 static_assert(std::size(kEndpoints) == static_cast<std::size_t>(Call::count));
 
@@ -384,11 +386,52 @@ void Link::start_service()
     start_age_ = 0.0f;
 }
 
+void Link::restart_service()
+{
+    if (starting())
+        return;
+    if (!online())
+    {
+        start_service();
+        return;
+    }
+    if (!can_start())
+    {
+        start_state_ = StartState::failed;
+        start_error_ = "This build does not include ps5-signal.elf";
+        return;
+    }
+    quit_seen_ = service_.serial(Call::quit);
+    service_.send(Call::quit);
+    start_state_ = StartState::stopping;
+    start_error_.clear();
+    start_age_ = 0.0f;
+}
+
 void Link::update_start(float dt)
 {
     if (start_state_ == StartState::idle || start_state_ == StartState::failed)
         return;
     start_age_ += dt;
+    if (start_state_ == StartState::stopping)
+    {
+        if (service_.serial(Call::quit) == quit_seen_ || service_.pending(Call::quit))
+            return;
+        const int answer = service_.outcome(Call::quit).reply.status;
+        if (answer != 200 && answer != -1)
+        {
+            // A service from before POST /quit existed: only a restart of the console stops it.
+            start_state_ = StartState::failed;
+            start_error_ = "This ps5-signal cannot stop itself yet: restart the console once";
+            return;
+        }
+        if (start_age_ < kQuitSettle)
+            return;
+        state_ = LinkState::offline;
+        start_state_ = StartState::idle;
+        start_service();
+        return;
+    }
     if (online())
     {
         start_state_ = StartState::idle;

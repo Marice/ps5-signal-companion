@@ -64,6 +64,7 @@ enum class Call : unsigned char
     led,         // POST /led
     stop,        // POST /stop
     launch,      // ps5-signal.elf to the ELF loader (kLoaderPort)
+    quit,        // POST /quit
     count,
 };
 
@@ -118,9 +119,10 @@ enum class LinkState : unsigned char
 enum class StartState : unsigned char
 {
     idle,
-    sending, // the ELF goes to the loader
-    waiting, // sent; waiting for the service to answer
-    failed,  // start_error() says why
+    stopping, // the running service was asked to quit, for a restart
+    sending,  // the ELF goes to the loader
+    waiting,  // sent; waiting for the service to answer
+    failed,   // start_error() says why
 };
 
 class Link
@@ -181,6 +183,14 @@ class Link
     bool can_start() const;
     // Sends it to the ELF loader, then waits for the service to answer.
     void start_service();
+    // Stops the running service (POST /quit) and starts the one in this app.
+    void restart_service();
+    // Sending, waiting or stopping for a restart.
+    bool starting() const
+    {
+        return start_state_ == StartState::stopping || start_state_ == StartState::sending ||
+               start_state_ == StartState::waiting;
+    }
     StartState start_state() const
     {
         return start_state_;
@@ -209,6 +219,7 @@ class Link
     StartState start_state_ = StartState::idle;
     std::string start_error_;
     unsigned launch_seen_ = 0;
+    unsigned quit_seen_ = 0;
     float start_age_ = 0.0f;
     mutable int payload_ = -1; // -1 not looked for yet, 0 missing, 1 present
     mutable std::string elf_;

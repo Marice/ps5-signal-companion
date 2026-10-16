@@ -42,6 +42,7 @@ enum Id
     kBlink,
     kStop,
     kStart,
+    kRestart,
     kCheck,
 };
 
@@ -192,6 +193,8 @@ class StatusScreen final : public app::Concept
             "Ends a beep and a light sequence that play now";
         form_.add_action(kStart, "Start ps5-signal").description =
             "Sends ps5-signal.elf to etaHEN's ELF loader (port 9021)";
+        form_.add_action(kRestart, "Restart ps5-signal").description =
+            "Stops it and starts the version in this app, after an update";
         form_.add_action(kCheck, "Check again").description = "Asks the service for its status now";
     }
 
@@ -217,7 +220,8 @@ class StatusScreen final : public app::Concept
         for (const int id : {kBeep, kBlink, kStop})
             form_.set_disabled(id, !online);
         const bool bundled = link.can_start();
-        form_.set_disabled(kStart, online || !bundled || starting(link));
+        form_.set_disabled(kStart, online || !bundled || link.starting());
+        form_.set_disabled(kRestart, !online || !bundled || link.starting());
         if (ui::FormRow *row = form_.row(kStart))
             row->description = online ? "It runs"
                                : !bundled
@@ -230,7 +234,7 @@ class StatusScreen final : public app::Concept
             {
                 // Without the service only starting it or checking again works.
                 form_.focus_row(bundled ? kStart : kCheck, false);
-                if (!asked_)
+                if (!asked_ && !link.starting())
                     ask(link, feedback);
             }
             else if (online)
@@ -275,12 +279,6 @@ class StatusScreen final : public app::Concept
         form_.set_value_text(kPlaying, playing);
     }
 
-    static bool starting(const signal::Link &link)
-    {
-        return link.start_state() == signal::StartState::sending ||
-               link.start_state() == signal::StartState::waiting;
-    }
-
     // Asked once per app run, the first time the service does not answer.
     void ask(const signal::Link &link, app::Feedback &feedback)
     {
@@ -319,8 +317,14 @@ class StatusScreen final : public app::Concept
         const signal::StartState now = link.start_state();
         if (now == start_seen_)
             return;
-        if (now == signal::StartState::sending)
+        if (now == signal::StartState::stopping)
         {
+            start_toast_ = toasts_.push(ui::StatusKind::info, "Restarting ps5-signal",
+                                        "Stopping the one that runs", -1.0f);
+        }
+        else if (now == signal::StartState::sending)
+        {
+            toasts_.dismiss(start_toast_);
             start_toast_ = toasts_.push(ui::StatusKind::info, "Starting ps5-signal",
                                         "Sending it to the ELF loader", -1.0f);
         }
@@ -348,6 +352,9 @@ class StatusScreen final : public app::Concept
         {
         case kStart:
             link.start_service();
+            break;
+        case kRestart:
+            link.restart_service();
             break;
         case kBeep:
             request_.start(link, signal::Call::beep, signal::beep_request({{1, 200}}));
