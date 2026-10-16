@@ -5,9 +5,12 @@
 #include "fake_signal.hpp"
 
 #include "concepts/concepts.hpp"
+#include "core/save_file.hpp"
+#include "signal/palette.hpp"
 #include "signal/service.hpp"
 
 #include <algorithm>
+#include <filesystem>
 #include <string>
 
 namespace
@@ -182,6 +185,147 @@ TEST_F(Screens, StartupDoesNotSaveWithoutTheService)
     settle(*design);
     EXPECT_FALSE(asked("PUT /config"));
     expect_drawable(*design);
+}
+
+} // namespace
+
+namespace
+{
+
+using hui::Action;
+using hui::Direction;
+using hui::app::Concept;
+using hui::testing::FakeSignal;
+namespace signal = hui::signal;
+
+// A folder per test with an app's assets (a stand-in payload) and data.
+class ScreensWithFiles : public Screens
+{
+  protected:
+    ScreensWithFiles()
+    {
+        root_ = std::filesystem::temp_directory_path() /
+                ("signal-companion-" +
+                 std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
+        std::filesystem::remove_all(root_);
+        std::filesystem::create_directories(root_ / "assets" / "payload");
+        std::filesystem::create_directories(root_ / "data");
+        std::string elf = "\x7f"
+                          "ELF";
+        elf.resize(256, '\0');
+        hui::save::write_atomic((root_ / "assets" / "payload" / "ps5-signal.elf").string(), elf);
+        signal::set_paths((root_ / "assets").string(), (root_ / "data").string());
+        // A fresh link, so it looks for the payload in this folder.
+        auto fake = std::make_unique<FakeSignal>();
+        fake_ = fake.get();
+        signal::install_link(std::move(fake));
+    }
+    ~ScreensWithFiles() override
+    {
+        signal::set_paths("/app0/assets", "/download0/hui");
+        std::filesystem::remove_all(root_);
+    }
+
+    std::filesystem::path root_;
+};
+
+TEST_F(ScreensWithFiles, StatusOffersToStartTheServiceAndStartsIt)
+{
+    fake_->set_running(false);
+    fake_->set_loader(true, true);
+    const std::unique_ptr<Concept> design = hui::concepts::make_status(context_);
+    design->enter();
+    settle(*design);
+    ASSERT_EQ(signal::link().state(), signal::LinkState::offline);
+    EXPECT_TRUE(signal::link().can_start());
+    expect_drawable(*design); // the dialog is up
+
+    send(*design, press(Action::confirm), 0.05f); // "Start it"
+    settle(*design, 0.3f);
+    EXPECT_TRUE(asked("PUSH 9021 256"));
+    settle(*design, 1.5f);
+    EXPECT_TRUE(signal::link().online());
+    EXPECT_EQ(signal::link().start_state(), signal::StartState::idle);
+    expect_drawable(*design);
+}
+
+TEST_F(ScreensWithFiles, AStartThatFailsSaysWhy)
+{
+    fake_->set_running(false);
+    fake_->set_loader(false, false);
+    signal::Link &link = signal::link();
+    link.update(0.0f);
+    link.service().wait_idle();
+    link.update(0.0f);
+    link.start_service();
+    link.service().wait_idle();
+    link.update(0.0f);
+    EXPECT_EQ(link.start_state(), signal::StartState::failed);
+    EXPECT_NE(link.start_error().find("9021"), std::string::npos);
+
+    // The loader takes it, but the service never answers.
+    fake_->set_loader(true, false);
+    link.start_service();
+    for (int i = 0; i < 20; ++i)
+    {
+        link.service().wait_idle();
+        link.update(0.5f);
+    }
+    EXPECT_EQ(link.start_state(), signal::StartState::failed);
+    EXPECT_NE(link.start_error().find("did not answer"), std::string::npos);
+}
+
+TEST_F(ScreensWithFiles, ColourStoresAMixAndBringsItBack)
+{
+    const std::unique_ptr<Concept> design = hui::concepts::make_colour(context_);
+    design->enter();
+    settle(*design);
+    move(*design, Direction::down, 3);  // Preset
+    move(*design, Direction::right, 2); // "Amber"
+    // Blue, White, Amber, Preset, Show, Keep, System, Stop trying, then My colours.
+    move(*design, Direction::down, 5); // the colour slot
+    move(*design, Direction::right);   // slot 2
+    move(*design, Direction::down);    // Store the mix here
+    send(*design, press(Action::confirm), 0.05f);
+    settle(*design);
+
+    const signal::Palette palette = signal::load_palette();
+    ASSERT_TRUE(palette.slots[1].has_value());
+    EXPECT_EQ(*palette.slots[1], (signal::Mix{0, 0, 255}));
+    expect_drawable(*design);
+
+    // A new screen reads it back; picking the slot puts it on the sliders.
+    const std::unique_ptr<Concept> again = hui::concepts::make_colour(context_);
+    again->enter();
+    settle(*again);
+    move(*again, Direction::down, 8);
+    move(*again, Direction::right);
+    settle(*again, 0.6f);
+    EXPECT_TRUE(asked("POST /color {\"blue\": 0, \"white\": 0, \"amber\": 255}"));
+}
+
+TEST(SignalPalette, SurvivesARoundTripAndRefusesNonsense)
+{
+    signal::Palette palette;
+    palette.slots[0] = signal::Mix{1, 2, 3};
+    palette.slots[5] = signal::Mix{255, 0, 255};
+    signal::Palette back;
+    ASSERT_TRUE(signal::parse_palette(signal::palette_json(palette), back));
+    EXPECT_EQ(back, palette);
+    for (const char *text : {"", "[]", R"({"colours": [{"blue": 256}]})", R"({"colours": [1]})"})
+        EXPECT_FALSE(signal::parse_palette(text, back)) << text;
+}
+
+TEST_F(Screens, StartupDrawsTimelinesAndPlaysTheTune)
+{
+    const std::unique_ptr<Concept> design = hui::concepts::make_startup(context_);
+    design->enter();
+    settle(*design);
+    move(*design, Direction::down, 14 + 2); // past "Add a beep" and "Remove", to "Play it"
+    send(*design, press(Action::confirm), 0.05f);
+    settle(*design, 0.3f);
+    EXPECT_TRUE(asked("POST /beep"));
+    expect_drawable(*design); // with the cursor on the timeline
 }
 
 } // namespace

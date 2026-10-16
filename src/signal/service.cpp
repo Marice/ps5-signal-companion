@@ -3,6 +3,8 @@
 
 #include "signal/service.hpp"
 
+#include "core/save_file.hpp"
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -23,6 +25,9 @@ constexpr int kTimeoutMs = 1500;
 constexpr std::size_t kMaxAnswer = 16 * 1024; // the service's answers are a few hundred bytes
 constexpr float kAskOnline = 2.0f;            // seconds between status checks
 constexpr float kAskOffline = 3.0f;
+constexpr float kStartWait = 8.0f; // seconds the service gets to answer after a start
+constexpr float kStartAskEvery = 1.0f;
+constexpr std::size_t kMaxPayload = 4u << 20;
 
 #ifdef MSG_NOSIGNAL
 constexpr int kSendFlags = MSG_NOSIGNAL;
@@ -38,7 +43,7 @@ struct Endpoint
 
 constexpr Endpoint kEndpoints[] = {
     {"GET", "/status"}, {"GET", "/config"}, {"PUT", "/config"}, {"POST", "/color"},
-    {"POST", "/beep"},  {"POST", "/led"},   {"POST", "/stop"},
+    {"POST", "/beep"},  {"POST", "/led"},   {"POST", "/stop"},  {"PUSH", ""},
 };
 static_assert(std::size(kEndpoints) == static_cast<std::size_t>(Call::count));
 
@@ -57,27 +62,9 @@ class HttpTransport final : public Transport
     Reply send(std::string_view method, std::string_view path, std::string_view body) override
     {
         Reply reply;
-        const int fd = socket(AF_INET, SOCK_STREAM, 0);
+        const int fd = open_loopback(port_);
         if (fd < 0)
             return reply;
-        timeval timeout{};
-        timeout.tv_sec = kTimeoutMs / 1000;
-        timeout.tv_usec = (kTimeoutMs % 1000) * 1000;
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-#ifdef SO_NOSIGPIPE
-        const int on = 1;
-        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof(on));
-#endif
-        sockaddr_in address{};
-        address.sin_family = AF_INET;
-        address.sin_port = htons(static_cast<std::uint16_t>(port_));
-        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        if (connect(fd, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0)
-        {
-            close(fd);
-            return reply;
-        }
 
         std::string request;
         request.reserve(160 + body.size());
@@ -93,16 +80,10 @@ class HttpTransport final : public Transport
         request += "\r\n";
         request.append(body);
 
-        std::size_t sent = 0;
-        while (sent < request.size())
+        if (!send_all(fd, request))
         {
-            const ssize_t n = ::send(fd, request.data() + sent, request.size() - sent, kSendFlags);
-            if (n <= 0)
-            {
-                close(fd);
-                return reply;
-            }
-            sent += static_cast<std::size_t>(n);
+            close(fd);
+            return reply;
         }
 
         std::string answer;
@@ -127,7 +108,59 @@ class HttpTransport final : public Transport
         return reply;
     }
 
+    Reply push(int port, std::string_view data) override
+    {
+        Reply reply;
+        const int fd = open_loopback(port);
+        if (fd < 0)
+            return reply;
+        if (send_all(fd, data))
+            reply.status = 200;
+        close(fd);
+        return reply;
+    }
+
   private:
+    // A connected TCP socket to 127.0.0.1:port with time-outs, or -1.
+    static int open_loopback(int port)
+    {
+        const int fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0)
+            return -1;
+        timeval timeout{};
+        timeout.tv_sec = kTimeoutMs / 1000;
+        timeout.tv_usec = (kTimeoutMs % 1000) * 1000;
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+#ifdef SO_NOSIGPIPE
+        const int on = 1;
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof(on));
+#endif
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_port = htons(static_cast<std::uint16_t>(port));
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (connect(fd, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0)
+        {
+            close(fd);
+            return -1;
+        }
+        return fd;
+    }
+
+    static bool send_all(int fd, std::string_view data)
+    {
+        std::size_t sent = 0;
+        while (sent < data.size())
+        {
+            const ssize_t n = ::send(fd, data.data() + sent, data.size() - sent, kSendFlags);
+            if (n <= 0)
+                return false;
+            sent += static_cast<std::size_t>(n);
+        }
+        return true;
+    }
+
     int port_;
 };
 
@@ -217,7 +250,8 @@ void Service::run()
         lock.unlock();
 
         const Endpoint &endpoint = kEndpoints[index(call)];
-        Reply reply = transport_->send(endpoint.method, endpoint.path, body);
+        Reply reply = call == Call::launch ? transport_->push(kLoaderPort, body)
+                                           : transport_->send(endpoint.method, endpoint.path, body);
 
         lock.lock();
         Outcome &outcome = outcomes_[index(call)];
@@ -310,12 +344,94 @@ void Link::update(float dt)
         service_.send(Call::status);
     }
 
+    update_start(dt);
     if (since_ask_ >= (online() ? kAskOnline : kAskOffline))
         refresh();
 }
 
+bool Link::can_start() const
+{
+    if (payload_ < 0)
+    {
+        std::string data;
+        const bool found =
+            save::read_file(assets_path() + "/payload/ps5-signal.elf", &data, kMaxPayload) &&
+            data.size() > 64 &&
+            data.compare(0, 4,
+                         "\x7f"
+                         "ELF") == 0;
+        payload_ = found ? 1 : 0;
+        if (found)
+            elf_ = std::move(data);
+    }
+    return payload_ == 1;
+}
+
+void Link::start_service()
+{
+    if (online() || start_state_ == StartState::sending || start_state_ == StartState::waiting)
+        return;
+    if (!can_start())
+    {
+        start_state_ = StartState::failed;
+        start_error_ = "This build does not include ps5-signal.elf";
+        return;
+    }
+    launch_seen_ = service_.serial(Call::launch);
+    service_.send(Call::launch, elf_);
+    start_state_ = StartState::sending;
+    start_error_.clear();
+    start_age_ = 0.0f;
+}
+
+void Link::update_start(float dt)
+{
+    if (start_state_ == StartState::idle || start_state_ == StartState::failed)
+        return;
+    start_age_ += dt;
+    if (online())
+    {
+        start_state_ = StartState::idle;
+        return;
+    }
+    if (start_state_ == StartState::sending)
+    {
+        if (service_.serial(Call::launch) == launch_seen_ || service_.pending(Call::launch))
+            return;
+        if (service_.outcome(Call::launch).reply.status != 200)
+        {
+            start_state_ = StartState::failed;
+            start_error_ = "The ELF loader did not answer on port 9021. Is etaHEN running?";
+            return;
+        }
+        start_state_ = StartState::waiting;
+        start_age_ = 0.0f;
+        return;
+    }
+    // Waiting: ask often, give up after a while.
+    if (since_ask_ >= kStartAskEvery)
+        refresh();
+    if (start_age_ >= kStartWait)
+    {
+        start_state_ = StartState::failed;
+        start_error_ = "Sent to the ELF loader, but ps5-signal did not answer";
+    }
+}
+
 namespace
 {
+
+std::string &assets_slot()
+{
+    static std::string kAssets = "/app0/assets";
+    return kAssets;
+}
+
+std::string &data_slot()
+{
+    static std::string kData = "/download0/hui";
+    return kData;
+}
 
 std::unique_ptr<Link> &instance()
 {
@@ -324,6 +440,22 @@ std::unique_ptr<Link> &instance()
 }
 
 } // namespace
+
+void set_paths(std::string assets, std::string data)
+{
+    assets_slot() = std::move(assets);
+    data_slot() = std::move(data);
+}
+
+const std::string &assets_path()
+{
+    return assets_slot();
+}
+
+const std::string &data_path()
+{
+    return data_slot();
+}
 
 Link &link()
 {

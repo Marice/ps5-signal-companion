@@ -18,6 +18,7 @@
 #include "ui/components/toast.hpp"
 #include "ui/widgets.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -34,8 +35,16 @@ using namespace companion;
 
 constexpr float kGap = 48.0f;
 constexpr float kColumn = (kRight - kMargin - kGap) * 0.5f;
-constexpr Rect kTuneForm{kMargin, kTop, kColumn, kBottom - kTop};
-constexpr Rect kLightForm{kMargin + kColumn + kGap, kTop, kColumn, kBottom - kTop};
+constexpr float kLineTop = kTop - 4.0f; // the timelines, between the titles and the forms
+constexpr float kLineHeight = 56.0f;
+constexpr float kFormTop = kLineTop + kLineHeight + 22.0f;
+constexpr Rect kTuneForm{kMargin, kFormTop, kColumn, kBottom - kFormTop};
+constexpr Rect kLightForm{kMargin + kColumn + kGap, kFormTop, kColumn, kBottom - kFormTop};
+constexpr Rect kTuneLine{kMargin, kLineTop, kColumn, kLineHeight};
+constexpr Rect kLightLine{kMargin + kColumn + kGap, kLineTop, kColumn, kLineHeight};
+constexpr float kBeepMs = 120.0f;     // how long a beep looks on the timeline
+constexpr float kLongBeepMs = 320.0f; // ... and a long one
+constexpr float kTailMs = 400.0f;     // room after the last beep
 constexpr int kPauseStep = 50;
 constexpr int kStepMsStep = 50;
 
@@ -175,6 +184,10 @@ class StartupScreen final : public app::Concept
         light_.update(dt);
         toasts_.update(dt, feedback);
         edge_.update(dt, 9.0f);
+        if (tune_cursor_ >= 0.0f && (tune_cursor_ += dt * 1000.0f) > played_length())
+            tune_cursor_ = -1.0f;
+        if (light_cursor_ >= 0.0f && (light_cursor_ += dt * 1000.0f) > light_length())
+            light_cursor_ = -1.0f;
     }
 
     void draw(app::Frame &frame) const override
@@ -187,6 +200,8 @@ class StartupScreen final : public app::Concept
         frame.scene.push_opacity(tween::cubic_out(age_ / 0.3f));
         draw_header(paint, "Startup", "What ps5-signal plays when it starts", link, clock_);
         draw_column_titles(paint, link);
+        draw_tune_line(paint);
+        draw_light_line(paint);
         tune_.draw(canvas);
         light_.draw(canvas);
         draw_hints(frame.scene, context_.fonts, look, kHintsEdit);
@@ -426,6 +441,7 @@ class StartupScreen final : public app::Concept
         case kPlayTune:
             request_.start(link, signal::Call::beep, signal::beep_request(edit_.beeps));
             done_text_ = "Playing the tune";
+            playing_ = 1;
             break;
         case kAddStep:
             edit_.leds.push_back(edit_.leds.back());
@@ -441,6 +457,7 @@ class StartupScreen final : public app::Concept
         case kPlayLight:
             request_.start(link, signal::Call::led, signal::led_request(edit_.leds));
             done_text_ = "Playing the light";
+            playing_ = 2;
             break;
         case kSave:
             save(link, feedback);
@@ -469,6 +486,7 @@ class StartupScreen final : public app::Concept
         }
         request_.start(link, signal::Call::save_config, signal::config_json(result(link)));
         done_text_ = "Saved: plays at the next start";
+        playing_ = 0;
         saving_ = true;
     }
 
@@ -478,6 +496,11 @@ class StartupScreen final : public app::Concept
         if (problem.empty())
         {
             toasts_.push(ui::StatusKind::success, done_text_);
+            // The cursor runs along the timeline of what plays now.
+            if (playing_ == 1)
+                tune_cursor_ = 0.0f;
+            else if (playing_ == 2)
+                light_cursor_ = 0.0f;
             if (saving_)
                 dirty_ = false; // the service's copy is this one now
         }
@@ -486,6 +509,7 @@ class StartupScreen final : public app::Concept
             toasts_.push(ui::StatusKind::warning, saving_ ? "Not saved" : "Not done", problem);
         }
         saving_ = false;
+        playing_ = 0;
     }
 
     void set_column(int column, app::Feedback &feedback)
@@ -496,6 +520,152 @@ class StartupScreen final : public app::Concept
     }
 
     // ---- drawing ------------------------------------------------------------------
+
+    // ---- the timelines ------------------------------------------------------------
+
+    // The beeps the service plays: the first kMaxApiBeeps of the tune.
+    int played_beeps() const
+    {
+        return std::min(static_cast<int>(edit_.beeps.size()), signal::kMaxApiBeeps);
+    }
+
+    // When each beep starts, in ms, for the whole tune.
+    float beep_start(int index) const
+    {
+        float at = 0.0f;
+        for (int i = 0; i < index; ++i)
+            at += static_cast<float>(edit_.beeps[static_cast<std::size_t>(i)].pause_ms);
+        return at;
+    }
+
+    // Where the test of the tune ends: after the last beep the service plays.
+    float played_length() const
+    {
+        const int count = played_beeps();
+        return count == 0 ? 0.0f : beep_start(count - 1) + kTailMs;
+    }
+
+    float tune_length() const
+    {
+        const int count = static_cast<int>(edit_.beeps.size());
+        return count == 0 ? 1.0f : beep_start(count - 1) + kTailMs;
+    }
+
+    float light_length() const
+    {
+        float total = 0.0f;
+        for (const signal::LedStep &step : edit_.leds)
+            total += static_cast<float>(step.ms);
+        return std::max(total, 1.0f);
+    }
+
+    // The step a form's focused row belongs to, or -1.
+    int focused_step(const ui::Form &form, int first_base, int second_base) const
+    {
+        const int id = form.focus_id();
+        if (id >= second_base && id < second_base + 100)
+            return id - second_base;
+        if (id >= first_base && id < first_base + 100)
+            return id - first_base;
+        return -1;
+    }
+
+    void draw_cursor(ui::Painter &paint, const Rect &inner, float share) const
+    {
+        const float x = inner.x + inner.w * std::clamp(share, 0.0f, 1.0f);
+        paint.fill({x - 2.0f, inner.y - 8.0f, 4.0f, inner.h + 16.0f}, 0.0f, paint.theme().focus);
+    }
+
+    void draw_tune_line(ui::Painter &paint) const
+    {
+        const ui::Theme &look = paint.theme();
+        paint.well(kTuneLine, 0.0f, empty_channel());
+        paint.stroke(kTuneLine, 0.0f, 3.0f, look.outline);
+        const Rect inner = kTuneLine.inset(10.0f);
+        if (!tune_on_)
+        {
+            paint.label("NO TUNE", inner.cx(), inner.cy() + 7.0f, 18.0f, look.text_muted,
+                        gfx::Align::center);
+            return;
+        }
+        const float total = tune_length();
+        const int focus = column_ == 0 ? focused_step(tune_, kToneBase, kPauseBase) : -1;
+        const int count = static_cast<int>(edit_.beeps.size());
+        for (int i = 0; i < count; ++i)
+        {
+            const signal::BeepStep &beep = edit_.beeps[static_cast<std::size_t>(i)];
+            float length = beep.tone == 3 ? kLongBeepMs : kBeepMs;
+            // Close beeps stay apart: a block never reaches the next one.
+            if (i + 1 < count)
+                length = std::min(length, static_cast<float>(beep.pause_ms) * 0.6f);
+            Rect block{inner.x + inner.w * beep_start(i) / total, inner.y,
+                       std::max(inner.w * length / total, 10.0f), inner.h};
+            block.w = std::min(block.w, inner.x + inner.w - block.x);
+            // Past the sixth the service's test does not play them: drawn quieter.
+            const float alpha = i < played_beeps() ? 1.0f : 0.35f;
+            const Color fill = beep.tone == 2   ? look.primary
+                               : beep.tone == 3 ? look.focus
+                                                : look.text;
+            if (beep.tone == 0)
+                paint.stroke(block, 0.0f, 3.0f, look.text.with_alpha(alpha));
+            else
+                paint.fill(block, 0.0f, fill.with_alpha(alpha));
+            if (i == focus)
+                paint.stroke(block.inset(-6.0f), 0.0f, 4.0f, look.warning);
+        }
+        if (tune_cursor_ >= 0.0f)
+            draw_cursor(paint, inner, tune_cursor_ / total);
+    }
+
+    void draw_light_line(ui::Painter &paint) const
+    {
+        const ui::Theme &look = paint.theme();
+        paint.well(kLightLine, 0.0f, empty_channel());
+        paint.stroke(kLightLine, 0.0f, 3.0f, look.outline);
+        const Rect inner = kLightLine.inset(10.0f);
+        if (!light_on_)
+        {
+            paint.label("NO LIGHT", inner.cx(), inner.cy() + 7.0f, 18.0f, look.text_muted,
+                        gfx::Align::center);
+            return;
+        }
+        const float total = light_length();
+        const int focus = column_ == 1 ? focused_step(light_, kStepBase, kMsBase) : -1;
+        constexpr const char *kLevelMarks[] = {"B", "M", "D"};
+        float at = 0.0f;
+        for (std::size_t i = 0; i < edit_.leds.size(); ++i)
+        {
+            const signal::LedStep &step = edit_.leds[i];
+            const Rect block{inner.x + inner.w * at / total, inner.y,
+                             inner.w * static_cast<float>(step.ms) / total, inner.h};
+            at += static_cast<float>(step.ms);
+            if (step.kind == signal::LedKind::level)
+            {
+                // A brightness keeps the colour: shown as a grey of that strength.
+                const float shade = 0.85f - 0.3f * static_cast<float>(step.level);
+                paint.fill(block, 0.0f, Color{shade, shade, shade, 1.0f});
+                if (block.w > 24.0f)
+                    paint.label(kLevelMarks[step.level], block.cx(), block.cy() + 7.0f, 18.0f,
+                                look.text, gfx::Align::center);
+            }
+            else
+            {
+                signal::Mix mix = step.mix;
+                if (step.kind == signal::LedKind::named)
+                    mix = step.name == signal::LedName::blue     ? signal::Mix{255, 0, 0}
+                          : step.name == signal::LedName::white  ? signal::Mix{0, 255, 0}
+                          : step.name == signal::LedName::orange ? signal::Mix{0, 0, 255}
+                                                                 : signal::Mix{0, 0, 0};
+                paint.fill(block, 0.0f, led_color(mix));
+            }
+            if (i > 0)
+                paint.fill({block.x - 1.5f, block.y, 3.0f, block.h}, 0.0f, look.outline);
+            if (static_cast<int>(i) == focus)
+                paint.stroke(block.inset(-6.0f), 0.0f, 4.0f, look.warning);
+        }
+        if (light_cursor_ >= 0.0f)
+            draw_cursor(paint, inner, light_cursor_ / total);
+    }
 
     void draw_column_titles(ui::Painter &paint, const signal::Link &link) const
     {
@@ -513,7 +683,7 @@ class StartupScreen final : public app::Concept
         {
             const char *note = "NOT SAVED YET";
             const float width = paint.label_width(note, 20.0f) + 40.0f;
-            const Rect sticker{kRight - width, kTop - 54.0f, width, 44.0f};
+            const Rect sticker{kRight - width, kTop - 62.0f, width, 40.0f};
             const Rect inside =
                 paint.surface(sticker, 0.0f, look.warning, look.outline, 1.0f, 3.0f);
             paint.label(note, inside.cx(), inside.cy() + 7.0f, 20.0f, look.text,
@@ -536,6 +706,9 @@ class StartupScreen final : public app::Concept
     bool light_on_ = true;
     bool dirty_ = false;
     bool saving_ = false;
+    int playing_ = 0;            // 1 tune, 2 light: what the last request plays
+    float tune_cursor_ = -1.0f;  // ms into the tune playing now; -1 for none
+    float light_cursor_ = -1.0f; // ms into the light playing now
     unsigned loaded_serial_ = 0;
     const char *done_text_ = "";
     int column_ = 0;

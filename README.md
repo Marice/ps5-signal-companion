@@ -12,19 +12,21 @@ Not tested on a console yet. The screens are tested on a PC against the ps5-sign
 ## What you need
 
 - A PS5 that runs homebrew apps (for example with etaHEN).
-- ps5-signal running on the console. The app talks to it on `127.0.0.1:9150` and does nothing by itself.
+- ps5-signal running on the console. The app talks to it on `127.0.0.1:9150` and does nothing by itself. When
+  it does not run, the app can start it: it carries ps5-signal.elf and sends it to etaHEN's ELF loader.
 
 ## Using it
 
 1. Start ps5-signal: send `ps5-signal.elf` to your ELF loader (etaHEN: port 9021), or let your autoloader load it.
+   Or open the app first: when the service does not answer, it asks whether to start it for you.
 2. Open Signal Companion. **L1** and **R1** move between its three screens; the **touchpad** explains the screen
    you are on.
 
 | Screen | What it does |
 | --- | --- |
-| **Status** | Says whether ps5-signal runs and what the console shows: the beeper, the light's brightness and colour, the kept colour. Plays a short beep or blinks the light as a test. When the service does not run, it says how to start it and checks again every 3 seconds. |
-| **Colour** | Three sliders (blue, white, amber) and presets. With "Show it on the console" on, the light follows the sliders (at most twice a second). "Keep this colour" saves it, so ps5-signal sets it at every start; "Use the system's colour" lets the console decide again. |
-| **Startup** | The tune (up to 16 beeps: a tone and the wait until the next) and the light (up to 32 steps: a colour or a brightness and how long it shows) that ps5-signal plays when it starts. Triangle changes column, Square saves both. |
+| **Status** | Says whether ps5-signal runs and what the console shows: the beeper, the light's brightness and colour, the kept colour. Plays a short beep or blinks the light as a test. When the service does not run, a dialog offers to start it ("Start ps5-signal" sends the bundled ps5-signal.elf to `127.0.0.1:9021`); the screen checks again every 3 seconds. |
+| **Colour** | Three sliders (blue, white, amber) and presets. With "Show it on the console" on, the light follows the sliders (at most twice a second). "Keep this colour" saves it, so ps5-signal sets it at every start; "Use the system's colour" lets the console decide again. "My colours" keeps up to 6 mixes of your own in the app. |
+| **Startup** | The tune (up to 16 beeps: a tone and the wait until the next) and the light (up to 32 steps: a colour or a brightness and how long it shows) that ps5-signal plays when it starts. A timeline above each shows them; while one plays, a cursor runs along it. Triangle changes column, Square saves both. |
 
 The light has blue, white and amber LEDs only. Mixing them gives other shades; there is no free RGB colour.
 
@@ -38,7 +40,8 @@ The light has blue, white and amber LEDs only. Mixing them gives other shades; t
 - **The light, while you try a colour:** `POST /color`. Not saved; "Stop trying" shows the saved colour again.
 - **`/data/ps5-signal/config.json`, when you save:** `PUT /config`. The Colour screen changes only `led_color`
   and the Startup screen only `startup`; the other part is sent back as the service had it.
-- **Nothing else.** The app has no settings file of its own on the console that it depends on.
+- **`/download0/hui/colours.json`** in the app's own storage: your colours under "My colours".
+- **ps5-signal.elf to `127.0.0.1:9021`**, only when you choose "Start ps5-signal".
 
 The rules for the values (6 beeps per test, 100-2000 ms between beeps, 250-10000 ms per light step and so on)
 are the service's own; the app keeps you inside them.
@@ -50,12 +53,14 @@ You need Linux or WSL with Docker.
 ```sh
 docker build -t signal-companion-build docker   # once
 docker/run.sh "make deps"                       # once: the PS5 SDKs into .deps/
+tools/bundle-payload.sh                         # ps5-signal.elf (release build) into assets/payload/
 docker/run.sh "make"                            # dist/PPSA69426/ and dist/PPSA69426.zip
 docker/run.sh "make test-unit"                  # the tests on the PC
 docker/run.sh "make lint"
 ```
 
-Install the folder `dist/PPSA69426` on the console the way you install other homebrew apps.
+Install the folder `dist/PPSA69426` on the console the way you install other homebrew apps. Without
+`tools/bundle-payload.sh` the app still works; "Start ps5-signal" then says the build does not include it.
 
 ## Checking it on a PC
 
@@ -83,4 +88,4 @@ its renderer, components, sounds and the "Brutal" theme. The kit's own guide is 
 
 ## Licence
 
-GPL-3.0-or-later ([LICENSE](LICENSE)), as ps5-homebrew-ui. Third-party parts: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+GPL-3.0-or-later ([LICENSE](LICENSE)), as ps5-homebrew-ui and ps5-signal (which the app carries). Third-party parts: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

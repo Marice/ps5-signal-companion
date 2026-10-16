@@ -80,6 +80,24 @@ class FakeSignal final : public signal::Transport
         return {200, R"({"ok":true})"};
     }
 
+    signal::Reply push(int port, std::string_view data) override
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        requests_.push_back("PUSH " + std::to_string(port) + " " + std::to_string(data.size()));
+        if (!loader_)
+            return {};
+        running_ = start_runs_;
+        return {200, {}};
+    }
+
+    // The ELF loader answers; a pushed payload starts the service when runs.
+    void set_loader(bool loader, bool runs)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        loader_ = loader;
+        start_runs_ = runs;
+    }
+
     void set_running(bool running)
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -115,6 +133,8 @@ class FakeSignal final : public signal::Transport
     std::string saved_;
     bool running_ = true;
     bool hold_ = false;
+    bool loader_ = true;
+    bool start_runs_ = true;
     bool held_ = false;
 };
 

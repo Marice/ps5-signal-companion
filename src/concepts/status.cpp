@@ -10,6 +10,7 @@
 
 #include "concepts/companion/look.hpp"
 #include "core/tween.hpp"
+#include "ui/components/dialog.hpp"
 #include "ui/components/form.hpp"
 #include "ui/components/toast.hpp"
 #include "ui/widgets.hpp"
@@ -40,7 +41,16 @@ enum Id
     kBeep,
     kBlink,
     kStop,
+    kStart,
     kCheck,
+};
+
+// The buttons of the dialog shown when the service does not answer.
+enum Answer
+{
+    kAnswerStart,
+    kAnswerCheck,
+    kAnswerLater,
 };
 
 constexpr const char *kTechniques[] = {
@@ -48,7 +58,8 @@ constexpr const char *kTechniques[] = {
      "seconds"),
     "Shows what the service reports: the beeper, the light's brightness and colour, what plays",
     "Play a short beep or blink the light to hear and see that it works",
-    "Start ps5-signal.elf with your ELF loader before you open this app",
+    ("Not running? \"Start ps5-signal\" sends the ps5-signal.elf in this app to etaHEN's ELF "
+     "loader on port 9021"),
 };
 
 constexpr ui::Hint kHints[] = {
@@ -82,6 +93,8 @@ class StatusScreen final : public app::Concept
         toasts_.style.theme = theme();
         toasts_.style.anchor = ui::ToastAnchor::bottom_right;
         toasts_.style.margin = 120.0f;
+        dialog_.style.theme = theme();
+        dialog_.style.frosted = false;
     }
 
     const app::ConceptInfo &info() const override
@@ -112,14 +125,23 @@ class StatusScreen final : public app::Concept
         signal::Link &link = signal::link();
         link.update(dt);
         restyle();
-        show_status(link);
+        follow_start(link);
+        show_status(link, feedback);
 
-        if (form_.handle(input, feedback) == ui::Event::activated)
+        if (dialog_.is_open())
+        {
+            if (dialog_.handle(input, feedback) == ui::Event::activated)
+                answer(dialog_.choice(), link);
+        }
+        else if (form_.handle(input, feedback) == ui::Event::activated)
+        {
             act(form_.changed_id(), link);
+        }
         signal::Reply reply;
         if (request_.done(link, reply))
             report(reply);
         form_.update(dt);
+        dialog_.update(dt);
         toasts_.update(dt, feedback);
         light_.target = 1.0f;
         light_.update(dt, 10.0f);
@@ -143,6 +165,7 @@ class StatusScreen final : public app::Concept
         draw_hints(frame.scene, context_.fonts, look, kHints);
         frame.scene.pop_opacity();
         ui::Canvas above{frame.overlay, context_.fonts, 0, clock_};
+        dialog_.draw(above);
         toasts_.draw(above);
     }
 
@@ -167,6 +190,8 @@ class StatusScreen final : public app::Concept
             "Orange and off, three times; then the light returns to its colour";
         form_.add_action(kStop, "Stop everything").description =
             "Ends a beep and a light sequence that play now";
+        form_.add_action(kStart, "Start ps5-signal").description =
+            "Sends ps5-signal.elf to etaHEN's ELF loader (port 9021)";
         form_.add_action(kCheck, "Check again").description = "Asks the service for its status now";
     }
 
@@ -186,14 +211,39 @@ class StatusScreen final : public app::Concept
         toasts_.style.reduced_motion = reduced_;
     }
 
-    void show_status(const signal::Link &link)
+    void show_status(const signal::Link &link, app::Feedback &feedback)
     {
         const bool online = link.online();
         for (const int id : {kBeep, kBlink, kStop})
             form_.set_disabled(id, !online);
-        // Without the service only "Check again" works: keep the focus there.
-        if (link.state() == signal::LinkState::offline && shown_state_ != link.state())
-            form_.focus_row(kCheck, false);
+        const bool bundled = link.can_start();
+        form_.set_disabled(kStart, online || !bundled || starting(link));
+        if (ui::FormRow *row = form_.row(kStart))
+            row->description = online ? "It runs"
+                               : !bundled
+                                   ? "This build does not include ps5-signal.elf"
+                                   : "Sends ps5-signal.elf to etaHEN's ELF loader (port 9021)";
+
+        if (shown_state_ != link.state())
+        {
+            if (link.state() == signal::LinkState::offline)
+            {
+                // Without the service only starting it or checking again works.
+                form_.focus_row(bundled ? kStart : kCheck, false);
+                if (!asked_)
+                    ask(link, feedback);
+            }
+            else if (online)
+            {
+                if (dialog_.is_open())
+                    dialog_.close(feedback);
+                // After a start the start's own toast says so.
+                if (shown_state_ == signal::LinkState::offline && !start_announced_)
+                    toasts_.push(ui::StatusKind::success, "ps5-signal found");
+                start_announced_ = false;
+                form_.focus_row(kBeep, false);
+            }
+        }
         shown_state_ = link.state();
         if (!online)
         {
@@ -225,10 +275,80 @@ class StatusScreen final : public app::Concept
         form_.set_value_text(kPlaying, playing);
     }
 
+    static bool starting(const signal::Link &link)
+    {
+        return link.start_state() == signal::StartState::sending ||
+               link.start_state() == signal::StartState::waiting;
+    }
+
+    // Asked once per app run, the first time the service does not answer.
+    void ask(const signal::Link &link, app::Feedback &feedback)
+    {
+        asked_ = true;
+        ui::DialogContent content;
+        content.icon = ui::StatusKind::warning;
+        content.title = "ps5-signal is not running";
+        if (link.can_start())
+        {
+            content.body = "The light and the startup signal work through it. Start it now: the "
+                           "app sends it to etaHEN's ELF loader.";
+            content.buttons = {{"Start it", ui::ButtonKind::primary}, {"Check again"}, {"Not now"}};
+        }
+        else
+        {
+            content.body = "The light and the startup signal work through it. Send "
+                           "ps5-signal.elf to your ELF loader (port 9021), then check again.";
+            content.buttons = {{"Check again", ui::ButtonKind::primary}, {"Not now"}};
+        }
+        dialog_.open(std::move(content), feedback);
+    }
+
+    void answer(int choice, signal::Link &link)
+    {
+        if (!link.can_start())
+            choice += 1; // the same answers without "Start it"
+        if (choice == kAnswerStart)
+            link.start_service();
+        else if (choice == kAnswerCheck)
+            link.refresh();
+    }
+
+    // A toast while the app starts the service, and one with the outcome.
+    void follow_start(const signal::Link &link)
+    {
+        const signal::StartState now = link.start_state();
+        if (now == start_seen_)
+            return;
+        if (now == signal::StartState::sending)
+        {
+            start_toast_ = toasts_.push(ui::StatusKind::info, "Starting ps5-signal",
+                                        "Sending it to the ELF loader", -1.0f);
+        }
+        else if (start_seen_ != signal::StartState::idle &&
+                 start_seen_ != signal::StartState::failed)
+        {
+            toasts_.dismiss(start_toast_);
+            if (now == signal::StartState::failed)
+            {
+                toasts_.push(ui::StatusKind::warning, "ps5-signal did not start",
+                             link.start_error());
+            }
+            else if (link.online())
+            {
+                toasts_.push(ui::StatusKind::success, "ps5-signal runs");
+                start_announced_ = true;
+            }
+        }
+        start_seen_ = now;
+    }
+
     void act(int id, signal::Link &link)
     {
         switch (id)
         {
+        case kStart:
+            link.start_service();
+            break;
         case kBeep:
             request_.start(link, signal::Call::beep, signal::beep_request({{1, 200}}));
             done_text_ = "Beep sent";
@@ -312,6 +432,11 @@ class StatusScreen final : public app::Concept
     bool reduced_ = false;
     bool styled_ = false;
     signal::LinkState shown_state_ = signal::LinkState::checking;
+    signal::StartState start_seen_ = signal::StartState::idle;
+    ui::Dialog dialog_;
+    int start_toast_ = -1;
+    bool asked_ = false;
+    bool start_announced_ = false;
 };
 
 } // namespace

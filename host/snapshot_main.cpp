@@ -16,6 +16,7 @@
 //   otherwise          one clip per design, its whole tour
 //   HUI_REEL=<dir> HUI_REEL_SWITCH=1   one clip of L1/R1 cycling through all designs
 
+#include "signal/service.hpp"
 #include "app/shell.hpp"
 #include "app/tour.hpp"
 #include "core/save_file.hpp"
@@ -253,6 +254,7 @@ int main(int argc, char **argv)
     hui::save::ensure_directory(output);
     hui::save::ensure_directory(data_root);
     std::remove((data_root + "/settings.bin").c_str());
+    hui::signal::set_paths(assets, data_root);
     hui::app::Shell shell(fonts, catalog, data_root, renderer.glass_texture());
     shell.set_version("host");
 

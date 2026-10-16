@@ -11,6 +11,7 @@
 
 #include "concepts/companion/look.hpp"
 #include "core/tween.hpp"
+#include "signal/palette.hpp"
 #include "ui/components/form.hpp"
 #include "ui/components/toast.hpp"
 #include "ui/widgets.hpp"
@@ -43,6 +44,8 @@ enum Id
     kSave,
     kSystem,
     kUndo,
+    kSlot,
+    kStore,
 };
 
 struct Preset
@@ -95,7 +98,11 @@ constexpr app::TourStep kTour[] = {
     {0.2f, 0, Direction::right},
     {0.9f, 0, Direction::down, "colour-preset"},
     {0.3f, 0, Direction::down},
-    {0.6f, 0, Direction::none, "colour-keep"},
+    {0.6f, 0, Direction::down, "colour-keep"},
+    {0.2f, 0, Direction::down},
+    {0.2f, 0, Direction::down},
+    {0.2f, 0, Direction::right},
+    {0.8f, 0, Direction::none, "colour-mine"},
 };
 
 class ColourScreen final : public app::Concept
@@ -208,6 +215,30 @@ class ColourScreen final : public app::Concept
             "Saves no colour: the console decides again";
         form_.add_action(kUndo, "Stop trying").description =
             "The light shows the saved colour again";
+
+        form_.add_header("My colours");
+        std::vector<std::string> slots;
+        for (int i = 0; i < signal::kPaletteSlots; ++i)
+            slots.push_back(std::to_string(i + 1));
+        ui::FormRow &slot = form_.add_choice(kSlot, "Colour", std::move(slots), 0);
+        slot.description = "Left and right pick one; a stored colour goes to the sliders";
+        // Each option is the stored colour as a swatch with its number.
+        slot.choice.option = [this](ui::Canvas &canvas, const Rect &area, int index, float)
+        { draw_slot(canvas, area, index); };
+        form_.add_action(kStore, "Store the mix here").description =
+            "Keeps the sliders' mix as this colour, in the app";
+    }
+
+    void draw_slot(ui::Canvas &canvas, const Rect &area, int index) const
+    {
+        ui::Painter paint(canvas.list, canvas.fonts, theme());
+        const std::optional<signal::Mix> &stored = palette_.slots[static_cast<std::size_t>(index)];
+        const Rect swatch{area.cx() - 70.0f, area.cy() - 15.0f, 30.0f, 30.0f};
+        paint.fill(swatch, 0.0f, stored ? led_color(*stored) : empty_channel());
+        paint.stroke(swatch, 0.0f, 3.0f, theme().outline);
+        char text[24];
+        std::snprintf(text, sizeof(text), "%d  %s", index + 1, stored ? "" : "EMPTY");
+        paint.label(text, swatch.x + 46.0f, area.cy() + 8.0f, 22.0f, theme().text);
     }
 
     void restyle()
@@ -276,7 +307,17 @@ class ColourScreen final : public app::Concept
 
     void changed(int id)
     {
-        if (id == kPreset)
+        if (id == kSlot)
+        {
+            const std::optional<signal::Mix> &stored =
+                palette_.slots[static_cast<std::size_t>(form_.choice_index(kSlot))];
+            if (stored)
+            {
+                set_mix(*stored);
+                trying_ = true;
+            }
+        }
+        else if (id == kPreset)
         {
             const int index = form_.choice_index(kPreset);
             if (index > 0)
@@ -334,6 +375,16 @@ class ColourScreen final : public app::Concept
             done_text_ = "The system decides the colour again";
             trying_ = false;
             break;
+        case kStore:
+        {
+            palette_.slots[static_cast<std::size_t>(form_.choice_index(kSlot))] = mix();
+            const std::string error = signal::save_palette(palette_);
+            if (error.empty())
+                toasts_.push(ui::StatusKind::success, "Colour stored");
+            else
+                toasts_.push(ui::StatusKind::warning, "Not stored", error);
+            return;
+        }
         case kUndo:
             request_.start(link, signal::Call::color,
                            config.hold ? signal::color_request(config.held)
@@ -418,6 +469,7 @@ class ColourScreen final : public app::Concept
     Request request_;
     const char *done_text_ = "";
     signal::Mix last_sent_;
+    signal::Palette palette_ = signal::load_palette();
     tween::Spring shown_[3];
     unsigned loaded_serial_ = 0;
     bool trying_ = false;

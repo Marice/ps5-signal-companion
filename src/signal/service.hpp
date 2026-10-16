@@ -31,6 +31,7 @@ namespace hui::signal
 {
 
 constexpr int kPort = 9150;
+constexpr int kLoaderPort = 9021; // etaHEN's ELF loader
 
 // One HTTP answer. status -1: no answer, the service does not run.
 struct Reply
@@ -45,6 +46,9 @@ class Transport
     virtual ~Transport() = default;
     // Blocks until the answer, a refusal or a time-out. Called on the worker.
     virtual Reply send(std::string_view method, std::string_view path, std::string_view body) = 0;
+    // Sends raw bytes to a loopback port and closes: how an ELF loader takes a
+    // payload. status 200 when every byte went out, -1 otherwise.
+    virtual Reply push(int port, std::string_view data) = 0;
 };
 
 // HTTP/1.1 over a loopback socket to the service's port.
@@ -59,6 +63,7 @@ enum class Call : unsigned char
     beep,        // POST /beep
     led,         // POST /led
     stop,        // POST /stop
+    launch,      // ps5-signal.elf to the ELF loader (kLoaderPort)
     count,
 };
 
@@ -108,6 +113,14 @@ enum class LinkState : unsigned char
     checking, // the first answer has not come yet
     online,
     offline,
+};
+
+enum class StartState : unsigned char
+{
+    idle,
+    sending, // the ELF goes to the loader
+    waiting, // sent; waiting for the service to answer
+    failed,  // start_error() says why
 };
 
 class Link
@@ -163,7 +176,23 @@ class Link
         return service_;
     }
 
+    // ---- starting the service from the app ----
+    // True when this build carries ps5-signal.elf (assets/payload/).
+    bool can_start() const;
+    // Sends it to the ELF loader, then waits for the service to answer.
+    void start_service();
+    StartState start_state() const
+    {
+        return start_state_;
+    }
+    const std::string &start_error() const
+    {
+        return start_error_;
+    }
+
   private:
+    void update_start(float dt);
+
     Service service_;
     LinkState state_ = LinkState::checking;
     Status status_;
@@ -177,7 +206,19 @@ class Link
     float age_ = 0.0f;
     float since_ask_ = 0.0f;
     bool started_ = false;
+    StartState start_state_ = StartState::idle;
+    std::string start_error_;
+    unsigned launch_seen_ = 0;
+    float start_age_ = 0.0f;
+    mutable int payload_ = -1; // -1 not looked for yet, 0 missing, 1 present
+    mutable std::string elf_;
 };
+
+// Where the app's files are: its read-only assets and a writable folder.
+// main() sets them; the defaults suit the console.
+void set_paths(std::string assets, std::string data);
+const std::string &assets_path();
+const std::string &data_path();
 
 // The app's link to the service, made on first use.
 Link &link();

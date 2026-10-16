@@ -171,12 +171,30 @@ void draw_offline_card(ui::Painter &paint, const Rect &r, const signal::Link &li
                   width, look.text_muted);
         return;
     }
+    const signal::StartState start = link.start_state();
+    if (start == signal::StartState::sending || start == signal::StartState::waiting)
+    {
+        paint.heading("Starting ps5-signal", x, y, 36.0f, look.text);
+        paragraph(paint,
+                  start == signal::StartState::sending
+                      ? "Sending ps5-signal.elf to etaHEN's ELF loader on port 9021."
+                      : "Sent. Waiting for the service to answer; you hear its startup tune.",
+                  x, y + 52.0f, 24.0f, width, look.text_muted);
+        return;
+    }
     paint.heading("Start ps5-signal first", x, y, 36.0f, look.text);
     y = paragraph(paint,
                   "This app sets the light and the startup signal through the ps5-signal "
                   "service. It does not answer on this console yet.",
                   x, y + 52.0f, 24.0f, width, look.text_muted);
-    constexpr const char *kSteps[] = {
+    if (start == signal::StartState::failed)
+        y = paragraph(paint, link.start_error(), x, y + 6.0f, 24.0f, width, look.danger);
+    const char *const kBundled[] = {
+        "Press X on \"Start ps5-signal\": the app sends it to etaHEN's ELF loader.",
+        "Or send ps5-signal.elf yourself (port 9021), or let your autoloader load it.",
+        "This screen checks again every 3 seconds.",
+    };
+    const char *const kManual[] = {
         ("Send ps5-signal.elf to your ELF loader (etaHEN: port 9021), or let your autoloader "
          "load it at start-up."),
         "Wait for its startup tune.",
@@ -184,7 +202,7 @@ void draw_offline_card(ui::Painter &paint, const Rect &r, const signal::Link &li
     };
     y += 18.0f;
     int number = 1;
-    for (const char *step : kSteps)
+    for (const char *step : link.can_start() ? kBundled : kManual)
     {
         const Rect badge{x, y - 28.0f, 40.0f, 40.0f};
         paint.surface(badge, 0.0f, look.surface_high, look.outline, 1.0f, 3.0f);
