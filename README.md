@@ -9,6 +9,21 @@ Not tested on a console yet. The screens are tested on a PC against the ps5-sign
 
 ![The Colour screen](docs/media/companion/colour.png)
 
+## Quick start
+
+1. **Install Signal Companion:** from the homebrew store, or unzip the
+   [release](https://github.com/Marice/ps5-signal-companion/releases/latest) and copy the `PPSA69426` folder to
+   `/data/homebrew/` on the console (FTP).
+2. **Open it.** When ps5-signal is not running, a dialog asks to start it. Choose **Start it**: the app sends the
+   ps5-signal it carries to etaHEN's ELF loader, and you hear its startup tune.
+3. **Start it with every boot (optional):** on the Status screen, switch on **Start with ps5-autoloader**. ps5-signal
+   then loads last in ps5-autoloader's list. This needs ps5-autoloader, and etaHEN's "Allow /data in sandbox".
+4. **Choose your colour and tune:** **Colour** → *Keep this colour*; **Startup** → Square saves the tune and the
+   light show.
+
+**Updating:** install the new version of the app and choose **Restart ps5-signal** on the Status screen. With
+ps5-autoloader, switch **Start with ps5-autoloader** off and on once, so its copy of ps5-signal is replaced too.
+
 ## What you need
 
 - A PS5 that runs homebrew apps (for example with etaHEN).
