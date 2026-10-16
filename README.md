@@ -1,0 +1,86 @@
+# Signal Companion
+
+A PS5 homebrew app (PPSA69426) for ps5-signal, the background service
+that plays beeps and light patterns on the console. With this app you choose the colour of the console's light
+and edit the tune and light that ps5-signal plays when it starts.
+
+Not tested on a console yet. The screens are tested on a PC against the ps5-signal service built for the PC
+(see [Checking it on a PC](#checking-it-on-a-pc)).
+
+![The Colour screen](docs/media/companion/colour.png)
+
+## What you need
+
+- A PS5 that runs homebrew apps (for example with etaHEN).
+- ps5-signal running on the console. The app talks to it on `127.0.0.1:9150` and does nothing by itself.
+
+## Using it
+
+1. Start ps5-signal: send `ps5-signal.elf` to your ELF loader (etaHEN: port 9021), or let your autoloader load it.
+2. Open Signal Companion. **L1** and **R1** move between its three screens; the **touchpad** explains the screen
+   you are on.
+
+| Screen | What it does |
+| --- | --- |
+| **Status** | Says whether ps5-signal runs and what the console shows: the beeper, the light's brightness and colour, the kept colour. Plays a short beep or blinks the light as a test. When the service does not run, it says how to start it and checks again every 3 seconds. |
+| **Colour** | Three sliders (blue, white, amber) and presets. With "Show it on the console" on, the light follows the sliders (at most twice a second). "Keep this colour" saves it, so ps5-signal sets it at every start; "Use the system's colour" lets the console decide again. |
+| **Startup** | The tune (up to 16 beeps: a tone and the wait until the next) and the light (up to 32 steps: a colour or a brightness and how long it shows) that ps5-signal plays when it starts. Triangle changes column, Square saves both. |
+
+The light has blue, white and amber LEDs only. Mixing them gives other shades; there is no free RGB colour.
+
+<p>
+<img src="docs/media/companion/status.png" width="49%" alt="The Status screen">
+<img src="docs/media/companion/startup.png" width="49%" alt="The Startup screen">
+</p>
+
+### What it changes
+
+- **The light, while you try a colour:** `POST /color`. Not saved; "Stop trying" shows the saved colour again.
+- **`/data/ps5-signal/config.json`, when you save:** `PUT /config`. The Colour screen changes only `led_color`
+  and the Startup screen only `startup`; the other part is sent back as the service had it.
+- **Nothing else.** The app has no settings file of its own on the console that it depends on.
+
+The rules for the values (6 beeps per test, 100-2000 ms between beeps, 250-10000 ms per light step and so on)
+are the service's own; the app keeps you inside them.
+
+## Building
+
+You need Linux or WSL with Docker.
+
+```sh
+docker build -t signal-companion-build docker   # once
+docker/run.sh "make deps"                       # once: the PS5 SDKs into .deps/
+docker/run.sh "make"                            # dist/PPSA69426/ and dist/PPSA69426.zip
+docker/run.sh "make test-unit"                  # the tests on the PC
+docker/run.sh "make lint"
+```
+
+Install the folder `dist/PPSA69426` on the console the way you install other homebrew apps.
+
+## Checking it on a PC
+
+`tools/host-snapshots.sh` runs every screen's tour on the PC and saves PNGs. Without the service the screens show
+the "not running" state:
+
+```sh
+docker/run.sh "tools/host-snapshots.sh build/snapshots all"
+```
+
+To see the screens with the service, run ps5-signal's PC build (with fake console functions) in the same
+container, then the snapshots. See `tests/run-host-tests.sh` in ps5-signal for how that build is made.
+
+## How it is made
+
+The app is built on [ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui) by BlackBearReloaded:
+its renderer, components, sounds and the "Brutal" theme. The kit's own guide is in
+[docs/KIT_README.md](docs/KIT_README.md) and [AGENTS.md](AGENTS.md).
+
+| Part | Where |
+| --- | --- |
+| The three screens | `src/concepts/status.cpp`, `colour.cpp`, `startup.cpp`; shared look in `src/concepts/companion/` |
+| Talking to ps5-signal | `src/signal/`: a worker thread sends HTTP requests so a frame never waits; `model.*` checks the config rules |
+| Tests | `tests/unit/signal_test.cpp`, `tests/unit/screens_test.cpp` (against a service in memory) |
+
+## Licence
+
+GPL-3.0-or-later ([LICENSE](LICENSE)), as ps5-homebrew-ui. Third-party parts: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
