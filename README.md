@@ -1,6 +1,6 @@
 # Signal Companion
 
-A PS5 homebrew app (PPSA69426) for ps5-signal, the background service
+A PS5 homebrew app (PPSA69426) for [ps5-signal](https://github.com/Marice/ps5-signal), the background service
 that plays beeps and light patterns on the console. With this app you choose the colour of the console's light
 and edit the tune and light that ps5-signal plays when it starts.
 
