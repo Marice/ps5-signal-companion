@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "component_fixture.hpp"
-#include "concepts/components/page.hpp"
 #include "ui/components/banner.hpp"
 #include "ui/components/button.hpp"
 #include "ui/components/button_group.hpp"
@@ -700,48 +699,6 @@ TEST_F(ComponentsActions, DrawsInEveryThemeAndVariant)
     EXPECT_TRUE(banner.is_shown());
     EXPECT_TRUE(coach.is_open());
     EXPECT_EQ(bar.at(0).badge(), 3);
-}
-
-TEST_F(ComponentsActions, PageTourEndsWhereItBegan)
-{
-    const std::unique_ptr<hui::concepts::gallery::Page> page =
-        hui::concepts::gallery::make_actions_page(context_);
-    EXPECT_STREQ(page->title(), "Actions");
-    const std::string first = page->variant();
-    const std::size_t board_hints = page->hints().size();
-    int pictures = 0;
-    for (const hui::app::TourStep &step : page->tour())
-    {
-        // The wait, with whatever the step keeps held, then its input.
-        hui::InputFrame waiting = idle();
-        waiting.held = step.hold;
-        for (int i = 0, frames = static_cast<int>(step.wait / kFrame); i < frames; ++i)
-        {
-            feedback_.clear();
-            page->update(waiting, kFrame, feedback_);
-        }
-        if (step.capture != nullptr)
-        {
-            ++pictures;
-            EXPECT_EQ(std::string(step.capture).rfind("actions", 0), 0u) << step.capture;
-        }
-        hui::InputFrame input = idle();
-        input.pressed = step.press;
-        input.held = step.press | step.hold;
-        input.nav = step.nav;
-        feedback_.clear();
-        page->update(input, kFrame, feedback_);
-        hui::ui::Canvas target = canvas();
-        page->draw(target);
-        page->draw_modal(target);
-        expect_drawn("actions page");
-    }
-    EXPECT_GE(page->tour().size(), 10u);
-    EXPECT_LE(page->tour().size(), 25u);
-    EXPECT_GE(pictures, 3);
-    EXPECT_LE(pictures, 5);
-    EXPECT_EQ(first, page->variant());            // the first variant again
-    EXPECT_EQ(page->hints().size(), board_hints); // nothing modal left open
 }
 
 } // namespace

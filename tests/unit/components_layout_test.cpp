@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "component_fixture.hpp"
-#include "concepts/components/page.hpp"
 #include "ui/components/focus_group.hpp"
 #include "ui/components/layout.hpp"
 #include "ui/components/scroll_area.hpp"
@@ -802,93 +801,6 @@ TEST_F(ComponentsLayout, DrawInEveryThemeAndVariant)
             expect_drawn(theme.id);
         }
     }
-}
-
-TEST_F(ComponentsLayout, PageRunsItsScreenFromTheGroupAlone)
-{
-    const std::unique_ptr<hui::concepts::gallery::Page> page =
-        hui::concepts::gallery::make_layout_page(context_);
-    const auto send_page = [&](const hui::InputFrame &input, float seconds = 0.6f)
-    {
-        feedback_.clear();
-        page->update(input, kFrame, feedback_);
-        const std::vector<hui::audio::CueEvent> cues = feedback_.cues;
-        for (int i = 0, frames = static_cast<int>(seconds / kFrame); i < frames; ++i)
-            page->update(idle(), kFrame, feedback_);
-        feedback_.cues = cues;
-    };
-    const auto draw_page = [&](const char *what)
-    {
-        hui::ui::Canvas target = canvas();
-        page->draw(target);
-        page->draw_modal(target);
-        expect_drawn(what);
-    };
-    const std::string first = page->variant();
-
-    // The modal takes the focus and the hints, and back returns both.
-    send_page(nav(Direction::up));
-    send_page(nav(Direction::right));
-    send_page(nav(Direction::right));
-    EXPECT_STREQ(page->hints()[2].label, "Scroll");
-    send_page(press(Action::confirm));
-    EXPECT_TRUE(asked(Cue::modal_open));
-    EXPECT_STREQ(page->hints()[2].label, "Close");
-    draw_page("modal");
-    send_page(nav(Direction::up));
-    EXPECT_TRUE(asked(Cue::error)) << "the scope keeps the focus inside the dialog";
-    send_page(press(Action::back));
-    EXPECT_STREQ(page->hints()[2].label, "Scroll");
-
-    // Every theme, every variant, with the focus walked through the page.
-    const Direction walk[] = {Direction::down, Direction::right, Direction::right,
-                              Direction::down, Direction::down,  Direction::left,
-                              Direction::left, Direction::up,    Direction::up};
-    for (const hui::ui::Theme &theme : hui::ui::themes())
-    {
-        page->restyle(theme, false);
-        page->enter();
-        for (int variant = 0; variant < 4; ++variant)
-        {
-            for (const Direction step : walk)
-                send_page(nav(step), 0.1f);
-            send_page(press(Action::confirm), 0.05f); // whatever has the focus
-            draw_page(theme.id);                      // ... half way through what it started
-            send_page(press(Action::back), 0.05f);    // had it opened the modal, close it
-            send_page(press(Action::west), 0.05f);
-            draw_page(theme.id);
-        }
-        EXPECT_EQ(first, page->variant()) << "four variants, then the first again";
-    }
-}
-
-TEST_F(ComponentsLayout, PageTourLeavesThePageAsItFoundIt)
-{
-    const std::unique_ptr<hui::concepts::gallery::Page> page =
-        hui::concepts::gallery::make_layout_page(context_);
-    page->restyle(hui::ui::default_theme(), true); // reduced motion: every step settles
-    const std::string first = page->variant();
-    bool opened = false;
-    for (const hui::app::TourStep &step : page->tour())
-    {
-        hui::InputFrame input = idle();
-        input.pressed = step.press;
-        input.held = step.press;
-        input.nav = step.nav;
-        feedback_.clear();
-        page->update(input, kFrame, feedback_);
-        EXPECT_FALSE(asked(Cue::error)) << "no step of the tour is refused";
-        for (int i = 0; i < 30; ++i)
-            page->update(idle(), kFrame, feedback_);
-        opened = opened || std::string(page->hints()[2].label) == "Close";
-        hui::ui::Canvas target = canvas();
-        page->draw(target);
-        page->draw_modal(target);
-        expect_drawn("tour");
-    }
-    EXPECT_TRUE(opened) << "the tour shows the modal";
-    EXPECT_EQ(first, page->variant());
-    EXPECT_STREQ(page->hints()[2].label, "Scroll") << "the tour leaves nothing open";
 }
 
 } // namespace

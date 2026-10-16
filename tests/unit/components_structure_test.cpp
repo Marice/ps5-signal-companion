@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "component_fixture.hpp"
-#include "concepts/components/page.hpp"
 #include "ui/components/accordion.hpp"
 #include "ui/components/jump_bar.hpp"
 #include "ui/components/radial.hpp"
@@ -604,49 +603,6 @@ TEST_F(ComponentsStructure, DrawsInEveryThemeAndVariant)
     EXPECT_TRUE(folds_.is_open(3));
     EXPECT_EQ(tree_.focus(), 4);
     EXPECT_EQ(index_.label(), "M");
-}
-
-TEST_F(ComponentsStructure, GalleryPageTourLeavesItAsItWasFound)
-{
-    const std::unique_ptr<hui::concepts::gallery::Page> page =
-        hui::concepts::gallery::make_structure_page(context_);
-    const std::string first = page->variant();
-    const hui::ui::Hint *hints = page->hints().data();
-    int pictures = 0;
-    std::size_t steps = 0;
-    for (const hui::app::TourStep &step : page->tour())
-    {
-        ++steps;
-        // The tour holds the stick and the held buttons while a step waits:
-        // the quick wheel depends on both.
-        hui::InputFrame waiting = idle();
-        waiting.stick_x = step.stick_x;
-        waiting.stick_y = step.stick_y;
-        waiting.held = step.hold;
-        for (int frame = 0, frames = static_cast<int>(step.wait / kFrame); frame < frames; ++frame)
-            page->update(waiting, kFrame, feedback_);
-        if (step.capture != nullptr)
-        {
-            EXPECT_EQ(std::strncmp(step.capture, "structure", 9), 0) << step.capture;
-            ++pictures;
-            hui::ui::Canvas target = canvas();
-            page->draw(target);
-            page->draw_modal(target);
-            expect_drawn(step.capture);
-        }
-        hui::InputFrame input = waiting;
-        input.pressed = step.press;
-        input.held = step.press | step.hold;
-        input.nav = step.nav;
-        feedback_.clear();
-        page->update(input, kFrame, feedback_);
-    }
-    EXPECT_GE(steps, 10u);
-    EXPECT_LE(steps, 25u);
-    EXPECT_GE(pictures, 3);
-    EXPECT_LE(pictures, 5);
-    EXPECT_EQ(first, page->variant());
-    EXPECT_EQ(page->hints().data(), hints) << "the wheel is closed";
 }
 
 } // namespace

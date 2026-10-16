@@ -11,29 +11,11 @@
 namespace hui::concepts
 {
 
-// One function per design, each defined in its own file in this directory.
-// To add a design: write the file, declare its factory here and list it in
-// registry.cpp. Nothing else in the app needs to change.
-std::unique_ptr<app::Concept> make_aurora(app::Context &context);
-std::unique_ptr<app::Concept> make_paper(app::Context &context);
-std::unique_ptr<app::Concept> make_neon(app::Context &context);
-std::unique_ptr<app::Concept> make_editorial(app::Context &context);
-std::unique_ptr<app::Concept> make_carousel(app::Context &context);
-std::unique_ptr<app::Concept> make_radial(app::Context &context);
-std::unique_ptr<app::Concept> make_hud(app::Context &context);
-std::unique_ptr<app::Concept> make_dashboard(app::Context &context);
-std::unique_ptr<app::Concept> make_player(app::Context &context);
-std::unique_ptr<app::Concept> make_keyboard(app::Context &context);
-std::unique_ptr<app::Concept> make_constellation(app::Context &context);
-std::unique_ptr<app::Concept> make_terminal(app::Context &context);
-std::unique_ptr<app::Concept> make_store(app::Context &context);
-std::unique_ptr<app::Concept> make_trophies(app::Context &context);
-std::unique_ptr<app::Concept> make_files(app::Context &context);
-std::unique_ptr<app::Concept> make_inventory(app::Context &context);
-std::unique_ptr<app::Concept> make_boot(app::Context &context);
-std::unique_ptr<app::Concept> make_settings(app::Context &context);
-std::unique_ptr<app::Concept> make_themes(app::Context &context);
-std::unique_ptr<app::Concept> make_components(app::Context &context);
-std::unique_ptr<app::Concept> make_toolbox(app::Context &context);
+// One function per screen, each defined in its own file in this directory.
+// To add one: write the file, declare its factory here and list it in
+// registry.cpp. These are Signal Companion's screens, in L1 / R1 order.
+std::unique_ptr<app::Concept> make_status(app::Context &context);
+std::unique_ptr<app::Concept> make_colour(app::Context &context);
+std::unique_ptr<app::Concept> make_startup(app::Context &context);
 
 } // namespace hui::concepts

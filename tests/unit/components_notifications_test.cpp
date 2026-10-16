@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "component_fixture.hpp"
-#include "concepts/components/page.hpp"
 #include "ui/components/notification.hpp"
 #include "ui/components/notification_bell.hpp"
 #include "ui/components/notification_center.hpp"
@@ -724,61 +723,6 @@ TEST_F(ComponentsNotifications, DrawInEveryThemeAndLook)
             bell.draw(target);
             expect_drawn(theme.id);
         }
-    }
-}
-
-TEST_F(ComponentsNotifications, GalleryPageTourLeavesItAsItWasFound)
-{
-    const std::unique_ptr<hui::concepts::gallery::Page> page =
-        hui::concepts::gallery::make_notifications_page(context_);
-    EXPECT_STREQ(page->title(), "Notifications");
-    const std::string first = page->variant();
-    const std::size_t hints = page->hints().size();
-    const std::string first_hint = page->hints()[2].label;
-    int pictures = 0;
-    const auto frame = [&](const hui::InputFrame &input)
-    {
-        feedback_.clear();
-        page->update(input, kFrame, feedback_);
-        // The stack measures with the fonts of a draw, as it would on screen.
-        hui::ui::Canvas target = canvas();
-        page->draw(target);
-        page->draw_modal(target);
-    };
-    for (const hui::app::TourStep &step : page->tour())
-    {
-        for (int i = 0, frames = static_cast<int>(step.wait / kFrame); i < frames; ++i)
-            frame(idle());
-        if (step.capture != nullptr)
-        {
-            EXPECT_EQ(std::strncmp(step.capture, "notifications", 13), 0) << step.capture;
-            ++pictures;
-            expect_drawn(step.capture);
-        }
-        hui::InputFrame input = idle();
-        input.pressed = step.press;
-        input.held = step.press;
-        input.nav = step.nav;
-        frame(input);
-    }
-    EXPECT_GE(pictures, 4);
-    EXPECT_LE(pictures, 6);
-    EXPECT_GE(page->tour().size(), 10u);
-    EXPECT_LE(page->tour().size(), 25u);
-    for (int i = 0; i < 120; ++i)
-        frame(idle());
-    EXPECT_EQ(first, page->variant());
-    EXPECT_EQ(page->hints().size(), hints) << "nothing is open";
-    EXPECT_EQ(first_hint, page->hints()[2].label) << "the page has the focus";
-    // Every look restyles in every theme without losing what is on screen.
-    for (const hui::ui::Theme &theme : hui::ui::themes())
-    {
-        page->restyle(theme, false);
-        frame(press(Action::confirm));
-        frame(press(Action::west));
-        for (int i = 0; i < 20; ++i)
-            frame(idle());
-        expect_drawn(theme.id);
     }
 }
 

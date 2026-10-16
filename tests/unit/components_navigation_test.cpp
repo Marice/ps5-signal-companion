@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "component_fixture.hpp"
-#include "concepts/components/page.hpp"
 #include "ui/components/breadcrumb.hpp"
 #include "ui/components/menu.hpp"
 #include "ui/components/page_dots.hpp"
@@ -461,38 +460,6 @@ TEST_F(ComponentsNavigation, DrawsInEveryThemeAndVariant)
     EXPECT_EQ(crumbs_.depth(), 5);
     EXPECT_TRUE(menu_.is_open());
     EXPECT_EQ(menu_.focus(), 5);
-}
-
-TEST_F(ComponentsNavigation, GalleryPageTourLeavesItAsItWasFound)
-{
-    const std::unique_ptr<hui::concepts::gallery::Page> page =
-        hui::concepts::gallery::make_navigation_page(context_);
-    const std::string first = page->variant();
-    const std::size_t hints = page->hints().size();
-    int pictures = 0;
-    for (const hui::app::TourStep &step : page->tour())
-    {
-        for (int frame = 0, frames = static_cast<int>(step.wait / kFrame); frame < frames; ++frame)
-            page->update(idle(), kFrame, feedback_);
-        if (step.capture != nullptr)
-        {
-            EXPECT_EQ(std::strncmp(step.capture, "navigation", 10), 0) << step.capture;
-            ++pictures;
-            hui::ui::Canvas target = canvas();
-            page->draw(target);
-            expect_drawn(step.capture);
-        }
-        hui::InputFrame input = idle();
-        input.pressed = step.press;
-        input.held = step.press;
-        input.nav = step.nav;
-        feedback_.clear();
-        page->update(input, kFrame, feedback_);
-    }
-    EXPECT_GE(pictures, 3);
-    EXPECT_LE(pictures, 5);
-    EXPECT_EQ(first, page->variant());
-    EXPECT_EQ(page->hints().size(), hints) << "the menu is closed";
 }
 
 } // namespace
