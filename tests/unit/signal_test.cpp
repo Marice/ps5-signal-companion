@@ -61,8 +61,11 @@ TEST(SignalConfig, TheDefaultSurvivesARoundTrip)
 {
     const Config config = default_config();
     EXPECT_EQ(config.beeps.size(), 7u);
-    EXPECT_EQ(config.leds.size(), 3u);
-    EXPECT_FALSE(config.hold);
+    EXPECT_EQ(config.leds.size(), 11u);
+    EXPECT_TRUE(config.hold);
+    EXPECT_EQ(config.held, (Mix{255, 80, 200}));
+    EXPECT_LE(tune_ms(config.beeps), kMaxTotalMs);
+    EXPECT_LE(light_ms(config.leds), kMaxTotalMs);
     Config back;
     std::string error;
     ASSERT_TRUE(parse_config(config_json(config), back, error)) << error;
@@ -73,18 +76,22 @@ TEST(SignalConfig, ReadsTheServicesExample)
 {
     // ps5-signal's README, "Running it".
     const char *text = R"({
-      "startup": {
-        "beep": [
-          { "tone": 1, "pause_ms": 400 }, { "tone": 1, "pause_ms": 200 }, { "tone": 1, "pause_ms": 200 },
-          { "tone": 1, "pause_ms": 100 }, { "tone": 1, "pause_ms": 600 }, { "tone": 1, "pause_ms": 200 },
-          { "tone": 1 }
-        ],
-        "led": [
-          { "color": "blue", "ms": 400 }, { "color": "white", "ms": 400 }, { "color": "blue", "ms": 400 }
-        ]
-      },
-      "led_color": null
-    })";
+  "startup": {
+    "beep": [
+      { "tone": 1, "pause_ms": 300 }, { "tone": 1, "pause_ms": 150 }, { "tone": 1, "pause_ms": 150 },
+      { "tone": 1, "pause_ms": 300 }, { "tone": 1, "pause_ms": 600 }, { "tone": 1, "pause_ms": 300 },
+      { "tone": 3 }
+    ],
+    "led": [
+      { "color": "blue", "ms": 250 }, { "color": "white", "ms": 250 }, { "color": "orange", "ms": 250 },
+      { "color": "blue", "ms": 250 }, { "color": "white", "ms": 250 }, { "color": "orange", "ms": 250 },
+      { "blue": 255, "white": 255, "ms": 300 }, { "white": 255, "amber": 255, "ms": 300 },
+      { "blue": 255, "amber": 255, "ms": 300 }, { "color": "off", "ms": 250 },
+      { "blue": 255, "white": 80, "amber": 200, "ms": 800 }
+    ]
+  },
+  "led_color": { "blue": 255, "white": 80, "amber": 200 }
+})";
     Config config;
     std::string error;
     ASSERT_TRUE(parse_config(text, config, error)) << error;
@@ -94,7 +101,7 @@ TEST(SignalConfig, ReadsTheServicesExample)
 TEST(SignalConfig, KeepsEveryKindOfLightStepAndTheColour)
 {
     const char *text = R"({"startup": {"beep": [], "led": [
-        {"level": 2, "ms": 250}, {"blue": 40, "amber": 255, "ms": 10000}, {"color": "off", "ms": 300}]},
+        {"level": 2, "ms": 250}, {"blue": 40, "amber": 255, "ms": 4000}, {"color": "off", "ms": 300}]},
         "led_color": {"blue": 10, "white": 20, "amber": 30}})";
     Config config;
     std::string error;
@@ -117,14 +124,19 @@ TEST(SignalConfig, KeepsEveryKindOfLightStepAndTheColour)
 
 TEST(SignalConfig, RefusesWhatTheServiceRefuses)
 {
-    std::string seventeen = R"({"startup": {"beep": [)";
-    for (int i = 0; i < 17; ++i)
-        seventeen += i == 0 ? R"({"tone": 1})" : R"(, {"tone": 1})";
-    seventeen += "]}}";
+    std::string too_many = R"({"startup": {"beep": [)";
+    for (int i = 0; i < kMaxConfigBeeps + 1; ++i)
+        too_many += i == 0 ? R"({"tone": 1})" : R"(, {"tone": 1})";
+    too_many += "]}}";
     const std::string cases[] = {
         "[]",
         R"({"startup": []})",
-        seventeen,
+        too_many,
+        // 10 seconds in all at most: the pauses of a tune, the steps of a light.
+        R"({"startup": {"beep": [{"tone": 1, "pause_ms": 2000}, {"tone": 1, "pause_ms": 2000},
+            {"tone": 1, "pause_ms": 2000}, {"tone": 1, "pause_ms": 2000}, {"tone": 1, "pause_ms": 2000},
+            {"tone": 1, "pause_ms": 100}, {"tone": 1}]}})",
+        R"({"startup": {"led": [{"level": 1, "ms": 6000}, {"level": 2, "ms": 4001}]}})",
         R"({"startup": {"beep": [{"tone": 4}]}})",
         R"({"startup": {"beep": [{"pause_ms": 200}]}})",
         R"({"startup": {"beep": [{"tone": 1, "pause_ms": 99}]}})",
@@ -149,12 +161,13 @@ TEST(SignalConfig, RefusesWhatTheServiceRefuses)
 
 TEST(SignalConfig, RequestsFollowTheApi)
 {
-    std::vector<BeepStep> beeps(9, BeepStep{2, 150});
+    std::vector<BeepStep> beeps(30, BeepStep{2, 150});
     JsonValue body;
     ASSERT_TRUE(parse_json(beep_request(beeps), body));
     ASSERT_EQ(body["pattern"].items().size(), static_cast<std::size_t>(kMaxApiBeeps));
     EXPECT_EQ(body["pattern"].items()[0]["pause_ms"].as_number(), 150.0);
-    EXPECT_FALSE(body["pattern"].items()[5].has("pause_ms")); // the last one waits for nothing
+    // The last one waits for nothing.
+    EXPECT_FALSE(body["pattern"].items()[kMaxApiBeeps - 1].has("pause_ms"));
 
     ASSERT_TRUE(parse_json(led_request(default_config().leds, 3), body));
     EXPECT_EQ(body["repeat"].as_number(), 3.0);

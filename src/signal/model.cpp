@@ -191,11 +191,12 @@ int light_ms(const std::vector<LedStep> &leds)
 
 Config default_config()
 {
-    // ps5-signal's own default: "Shave and a Haircut", a run through the LEDs, then the colour it keeps.
+    // ps5-signal's own default: "Shave and a Haircut", a run through the LEDs, then the colour it
+    // keeps.
     Config config;
     const int pauses[] = {300, 150, 150, 300, 600, 300, kDefaultPauseMs};
     for (int i = 0; i < 7; ++i)
-        config.beeps.push_back({1, pauses[i]});
+        config.beeps.push_back({i < 6 ? 1 : 3, pauses[i]});
     const auto named = [](LedName name, int ms)
     {
         LedStep step;
@@ -283,8 +284,9 @@ bool parse_config(const JsonValue &root, Config &out, std::string &error)
         }
         if (!empty_or_absent(startup["led"]) && !read_leds(startup["led"], config.leds))
         {
-            error = "startup.led: 1-24 steps with ms 250-10000, 10 s in all, and a level, a colour or "
-                    "a mix";
+            error =
+                "startup.led: 1-24 steps with ms 250-10000, 10 s in all, and a level, a colour or "
+                "a mix";
             return false;
         }
     }

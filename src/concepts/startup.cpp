@@ -176,9 +176,11 @@ class StartupScreen final : public app::Concept
         if (over_)
         {
             over_ = false;
-            ui::refuse(feedback, tune_.style, input, edge_, column_ == 0 ? kTuneForm.cx() : kLightForm.cx());
-            toasts_.push(ui::StatusKind::warning, "10 seconds at most",
-                         "The waits of the tune, and the steps of the light, add up to 10 s at most");
+            ui::refuse(feedback, tune_.style, input, edge_,
+                       column_ == 0 ? kTuneForm.cx() : kLightForm.cx());
+            toasts_.push(
+                ui::StatusKind::warning, "10 seconds at most",
+                "The waits of the tune, and the steps of the light, add up to 10 s at most");
         }
         enable(link);
 
@@ -257,8 +259,7 @@ class StartupScreen final : public app::Concept
         }
         tune_.add_action(kAddBeep, "Add a beep");
         tune_.add_action(kRemoveBeep, "Remove the last beep");
-        tune_.add_action(kPlayTune, "Play it").description =
-            "Plays the tune on the console";
+        tune_.add_action(kPlayTune, "Play it").description = "Plays the tune on the console";
         tune_.add_header("Config");
         tune_.add_action(kSave, "Save to the console").description =
             "Writes the tune and the light to config.json";
@@ -436,10 +437,10 @@ class StartupScreen final : public app::Concept
         const int beeps = static_cast<int>(edit_.beeps.size());
         const int steps = static_cast<int>(edit_.leds.size());
         // A new beep copies the last, whose pause then counts too.
-        tune_.set_disabled(kAddBeep, !tune_on_ || beeps >= signal::kMaxConfigBeeps ||
-                                         signal::tune_ms(edit_.beeps) +
-                                                 edit_.beeps.back().pause_ms >
-                                             signal::kMaxTotalMs);
+        tune_.set_disabled(kAddBeep,
+                           !tune_on_ || beeps >= signal::kMaxConfigBeeps ||
+                               signal::tune_ms(edit_.beeps) + edit_.beeps.back().pause_ms >
+                                   signal::kMaxTotalMs);
         tune_.set_disabled(kRemoveBeep, !tune_on_ || beeps <= 1);
         tune_.set_disabled(kPlayTune, !online || !tune_on_);
         tune_.set_disabled(kSave, !online || !link.has_config() || !unsaved(link));
@@ -736,7 +737,7 @@ class StartupScreen final : public app::Concept
     bool light_on_ = true;
     bool dirty_ = false;
     bool saving_ = false;
-    bool over_ = false; // a change was undone: it went past 10 seconds
+    bool over_ = false;          // a change was undone: it went past 10 seconds
     int playing_ = 0;            // 1 tune, 2 light: what the last request plays
     float tune_cursor_ = -1.0f;  // ms into the tune playing now; -1 for none
     float light_cursor_ = -1.0f; // ms into the light playing now

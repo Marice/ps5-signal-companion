@@ -106,8 +106,8 @@ TEST_F(Screens, ColourTriesAPresetOnTheConsoleAndKeepsIt)
     ASSERT_TRUE(signal::link().has_config());
 
     move(*design, Direction::down, 3); // Preset
-    // The light shows blue (the fake's status), so the preset reads "Blue".
-    move(*design, Direction::right); // "White"
+    // The kept colour (blue 255, white 80, amber 200) is no preset: it reads "Custom".
+    move(*design, Direction::right, 2); // "White"
     settle(*design, 0.6f);
     EXPECT_TRUE(asked("POST /color {\"blue\": 0, \"white\": 255, \"amber\": 0}"));
     expect_drawable(*design);
@@ -172,7 +172,7 @@ TEST_F(Screens, StartupCanTurnTheTuneOff)
     std::string error;
     ASSERT_TRUE(signal::parse_config(fake_->saved(), saved, error)) << error;
     EXPECT_TRUE(saved.beeps.empty());
-    EXPECT_EQ(saved.leds.size(), 3u);
+    EXPECT_EQ(saved.leds.size(), signal::default_config().leds.size());
 }
 
 TEST_F(Screens, StartupDoesNotSaveWithoutTheService)
@@ -269,26 +269,6 @@ TEST_F(ScreensWithFiles, RestartStopsTheServiceAndStartsTheBundledOne)
     EXPECT_EQ(link.start_state(), signal::StartState::idle);
 }
 
-TEST_F(ScreensWithFiles, RestartStopsTheServiceAndStartsTheBundledOne)
-{
-    signal::Link &link = signal::link();
-    link.update(0.0f);
-    link.service().wait_idle();
-    link.update(0.0f);
-    ASSERT_TRUE(link.online());
-    link.restart_service();
-    EXPECT_EQ(link.start_state(), signal::StartState::stopping);
-    for (int i = 0; i < 12 && link.start_state() != signal::StartState::idle; ++i)
-    {
-        link.service().wait_idle();
-        link.update(0.25f);
-    }
-    EXPECT_TRUE(asked("POST /quit"));
-    EXPECT_TRUE(asked("PUSH 9021 256"));
-    EXPECT_TRUE(link.online());
-    EXPECT_EQ(link.start_state(), signal::StartState::idle);
-}
-
 TEST_F(ScreensWithFiles, AStartThatFailsSaysWhy)
 {
     fake_->set_running(false);
@@ -321,7 +301,7 @@ TEST_F(ScreensWithFiles, ColourStoresAMixAndBringsItBack)
     design->enter();
     settle(*design);
     move(*design, Direction::down, 3);  // Preset
-    move(*design, Direction::right, 2); // "Amber"
+    move(*design, Direction::right, 3); // from "Custom" to "Amber"
     // Blue, White, Amber, Preset, Show, Keep, System, Stop trying, then My colours.
     move(*design, Direction::down, 5); // the colour slot
     move(*design, Direction::right);   // slot 2
