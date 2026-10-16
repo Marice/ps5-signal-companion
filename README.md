@@ -17,7 +17,8 @@ Not tested on a console yet. The screens are tested on a PC against the ps5-sign
 2. **Open it.** When ps5-signal is not running, a dialog asks to start it. Choose **Start it**: the app sends the
    ps5-signal it carries to etaHEN's ELF loader, and you hear its startup tune.
 3. **Start it with every boot (optional):** on the Status screen, switch on **Start with ps5-autoloader**. ps5-signal
-   then loads last in ps5-autoloader's list. This needs ps5-autoloader, and etaHEN's "Allow /data in sandbox".
+   then loads last in ps5-autoloader's list. This needs [ps5-autoloader](https://github.com/itsPLK/ps5-y2jb-autoloader) by itsPLK, and etaHEN's "Allow /data
+   in sandbox".
 4. **Choose your colour and tune:** **Colour** → *Keep this colour*; **Startup** → Square saves the tune and the
    light show.
 
@@ -105,5 +106,7 @@ its renderer, components, sounds and the "Brutal" theme. The kit's own guide is 
 | Tests | `tests/unit/signal_test.cpp`, `tests/unit/screens_test.cpp` (against a service in memory) |
 
 ## Licence
+
+Thanks to [ps5-autoloader](https://github.com/itsPLK/ps5-y2jb-autoloader) by itsPLK, which "Start with ps5-autoloader" adds ps5-signal to.
 
 GPL-3.0-or-later ([LICENSE](LICENSE)), as ps5-homebrew-ui and ps5-signal (which the app carries). Third-party parts: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
