@@ -10,6 +10,7 @@
 
 #include "concepts/companion/look.hpp"
 #include "core/tween.hpp"
+#include "signal/autoload.hpp"
 #include "ui/components/dialog.hpp"
 #include "ui/components/form.hpp"
 #include "ui/components/toast.hpp"
@@ -44,6 +45,7 @@ enum Id
     kStart,
     kRestart,
     kCheck,
+    kAutoload,
 };
 
 // The buttons of the dialog shown when the service does not answer.
@@ -134,9 +136,13 @@ class StatusScreen final : public app::Concept
             if (dialog_.handle(input, feedback) == ui::Event::activated)
                 answer(dialog_.choice(), link);
         }
-        else if (form_.handle(input, feedback) == ui::Event::activated)
+        else
         {
-            act(form_.changed_id(), link);
+            const ui::Event event = form_.handle(input, feedback);
+            if (event == ui::Event::activated)
+                act(form_.changed_id(), link);
+            else if (event == ui::Event::changed && form_.changed_id() == kAutoload)
+                set_autoload(form_.toggle_value(kAutoload));
         }
         signal::Reply reply;
         if (request_.done(link, reply))
@@ -196,6 +202,14 @@ class StatusScreen final : public app::Concept
         form_.add_action(kRestart, "Restart ps5-signal").description =
             "Stops it and starts the version in this app, after an update";
         form_.add_action(kCheck, "Check again").description = "Asks the service for its status now";
+        // Only where ps5-autoloader's list can be seen (etaHEN allows /data in the sandbox).
+        const signal::AutoloadState autoload = signal::autoload_state();
+        if (autoload.found)
+        {
+            form_.add_header("At boot");
+            form_.add_toggle(kAutoload, "Start with ps5-autoloader", autoload.listed).description =
+                "Last in /data/ps5_autoloader/autoload.txt, 3 seconds after the payload before it";
+        }
     }
 
     void restyle()
@@ -344,6 +358,21 @@ class StatusScreen final : public app::Concept
             }
         }
         start_seen_ = now;
+    }
+
+    // Adds ps5-signal to ps5-autoloader's list, or takes it out; a failure puts the switch back.
+    void set_autoload(bool on)
+    {
+        const std::string error = on ? signal::autoload_add() : signal::autoload_remove();
+        if (!error.empty())
+        {
+            form_.set_toggle(kAutoload, !on);
+            toasts_.push(ui::StatusKind::warning, "ps5-autoloader not changed", error);
+            return;
+        }
+        toasts_.push(ui::StatusKind::success,
+                     on ? "Starts with ps5-autoloader" : "Taken out of ps5-autoloader",
+                     on ? "Last in autoload.txt, 3 s after the payload before it" : "");
     }
 
     void act(int id, signal::Link &link)
