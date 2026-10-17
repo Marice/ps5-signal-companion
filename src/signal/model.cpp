@@ -305,11 +305,14 @@ bool parse_config(const JsonValue &root, Config &out, std::string &error)
     if (!temperature.is_null())
     {
         if (!temperature.is_object() ||
-            !read_int(temperature, "cool", kTemperatureMin, kTemperatureMax, kCoolDefault, config.cool) ||
-            !read_int(temperature, "warm", kTemperatureMin, kTemperatureMax, kWarmDefault, config.warm) ||
+            !read_int(temperature, "cool", kTemperatureMin, kTemperatureMax, kCoolDefault,
+                      config.cool) ||
+            !read_int(temperature, "warm", kTemperatureMin, kTemperatureMax, kWarmDefault,
+                      config.warm) ||
             config.warm - config.cool < kTemperatureGap)
         {
-            error = "temperature_led: null, or cool and warm 20-100 C with cool at least 4 below warm";
+            error =
+                "temperature_led: null, or cool and warm 20-100 C with cool at least 4 below warm";
             return false;
         }
         config.temperature = true;
@@ -458,14 +461,17 @@ const char *volume_name(int volume)
 Mix temperature_mix(int celsius, int cool, int warm)
 {
     // As ps5-signal's temperature_color (src/temperature.c), integer for integer.
-    const auto blend = [](int from, int to, int step, int steps) { return from + (to - from) * step / steps; };
+    const auto blend = [](int from, int to, int step, int steps)
+    { return from + (to - from) * step / steps; };
     const int middle = (cool + warm) / 2;
     if (celsius <= cool)
         return {255, 0, 0};
     if (celsius < middle)
-        return {blend(255, 0, celsius - cool, middle - cool), blend(0, 255, celsius - cool, middle - cool), 0};
+        return {blend(255, 0, celsius - cool, middle - cool),
+                blend(0, 255, celsius - cool, middle - cool), 0};
     if (celsius < warm)
-        return {0, blend(255, 0, celsius - middle, warm - middle), blend(0, 255, celsius - middle, warm - middle)};
+        return {0, blend(255, 0, celsius - middle, warm - middle),
+                blend(0, 255, celsius - middle, warm - middle)};
     return {0, 0, 255};
 }
 

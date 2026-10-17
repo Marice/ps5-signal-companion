@@ -3,12 +3,17 @@
 
 #include "fake_signal.hpp"
 
+#include "signal/autoload.hpp"
 #include "signal/json.hpp"
 #include "signal/model.hpp"
 #include "signal/service.hpp"
+#include "signal/version.hpp"
 
 #include <gtest/gtest.h>
 
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 namespace
@@ -296,6 +301,112 @@ TEST(SignalLink, ReadsTheConfigBackAfterASave)
     EXPECT_GT(link.config_serial(), before);
     EXPECT_EQ(link.config(), config);
     EXPECT_EQ(signal->saved(), config_json(config));
+}
+
+// ---- versions and ps5-autoloader's copy ----------------------------------------
+
+TEST(SignalVersion, ReadsTheMarker)
+{
+    const std::string elf = std::string("\x7f"
+                                        "ELF") +
+                            std::string(100, '\0') + "PS5SIGNAL_VER:0.2.0" + std::string(1, '\0') +
+                            "more";
+    EXPECT_EQ(payload_version(elf), "0.2.0");
+    EXPECT_EQ(payload_version("no marker here"), "");
+    EXPECT_EQ(payload_version("PS5SIGNAL_VER:"), "");
+    EXPECT_EQ(payload_version("PS5SIGNAL_VER:.1"), "");
+    EXPECT_EQ(payload_version("PS5SIGNAL_VER:1.2.3x"), "1.2.3");
+}
+
+TEST(SignalVersion, ComparesDottedNumbers)
+{
+    EXPECT_LT(compare_versions("0.1.0", "0.2.0"), 0);
+    EXPECT_GT(compare_versions("0.10.0", "0.9.1"), 0);
+    EXPECT_EQ(compare_versions("0.2", "0.2.0"), 0);
+    EXPECT_LT(compare_versions("", "0.2.0"), 0); // older than 0.2.0: no marker
+    EXPECT_GT(compare_versions("0.2.0", ""), 0);
+    EXPECT_EQ(compare_versions("", ""), 0);
+}
+
+namespace
+{
+
+std::string elf_with(const std::string &version)
+{
+    std::string elf = std::string("\x7f"
+                                  "ELF") +
+                      std::string(100, 'x');
+    if (!version.empty())
+        elf += "PS5SIGNAL_VER:" + version + std::string(1, '\0');
+    return elf;
+}
+
+void write(const std::filesystem::path &path, const std::string &text)
+{
+    std::ofstream(path, std::ios::binary) << text;
+}
+
+std::string read(const std::filesystem::path &path)
+{
+    std::ifstream in(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), {});
+}
+
+// An app folder with a payload of this version, and ps5-autoloader's folder listing ps5-signal.
+struct AutoloadFolders
+{
+    std::filesystem::path root;
+    std::filesystem::path loader;
+
+    explicit AutoloadFolders(const std::string &app_version)
+    {
+        root = std::filesystem::temp_directory_path() /
+               ("signal-autoload-" + std::to_string(std::rand()));
+        loader = root / "ps5_autoloader";
+        std::filesystem::create_directories(root / "assets" / "payload");
+        std::filesystem::create_directories(loader);
+        write(root / "assets" / "payload" / "ps5-signal.elf", elf_with(app_version));
+        write(loader / "autoload.txt", "other.elf\n!3000\nps5-signal.elf\n");
+        set_paths((root / "assets").string(), (root / "data").string());
+    }
+    ~AutoloadFolders()
+    {
+        std::error_code ignored;
+        std::filesystem::remove_all(root, ignored);
+    }
+};
+
+} // namespace
+
+TEST(SignalAutoload, ReplacesAnOlderCopy)
+{
+    AutoloadFolders folders("0.2.0");
+    write(folders.loader / "ps5-signal.elf", elf_with("")); // 0.1.0 had no marker
+    const AutoloadRefresh refresh = autoload_refresh(folders.loader.string());
+    EXPECT_TRUE(refresh.updated);
+    EXPECT_EQ(refresh.from, "");
+    EXPECT_EQ(refresh.to, "0.2.0");
+    EXPECT_EQ(read(folders.loader / "ps5-signal.elf"), elf_with("0.2.0"));
+}
+
+TEST(SignalAutoload, KeepsTheSameOrANewerCopy)
+{
+    for (const char *version : {"0.2.0", "0.3.0"})
+    {
+        AutoloadFolders folders("0.2.0");
+        write(folders.loader / "ps5-signal.elf", elf_with(version));
+        EXPECT_FALSE(autoload_refresh(folders.loader.string()).updated) << version;
+        EXPECT_EQ(read(folders.loader / "ps5-signal.elf"), elf_with(version));
+    }
+}
+
+TEST(SignalAutoload, LeavesTheFolderAloneWhenNotListed)
+{
+    AutoloadFolders folders("0.2.0");
+    write(folders.loader / "autoload.txt", "other.elf\n");
+    write(folders.loader / "ps5-signal.elf", elf_with(""));
+    EXPECT_FALSE(autoload_refresh(folders.loader.string()).updated);
+    EXPECT_EQ(read(folders.loader / "ps5-signal.elf"), elf_with(""));
 }
 
 } // namespace

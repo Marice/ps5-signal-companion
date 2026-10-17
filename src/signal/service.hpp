@@ -182,6 +182,8 @@ class Link
     // ---- starting the service from the app ----
     // True when this build carries ps5-signal.elf (assets/payload/).
     bool can_start() const;
+    // The version of the ps5-signal.elf this build carries, or "" (none, or older than 0.2.0).
+    std::string bundled_version() const;
     // Sends it to the ELF loader, then waits for the service to answer.
     void start_service();
     // Stops the running service (POST /quit) and starts the one in this app.

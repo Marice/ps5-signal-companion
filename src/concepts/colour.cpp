@@ -247,15 +247,17 @@ class ColourScreen final : public app::Concept
         form_.add_toggle(kTemperatureLed, "Show the temperature", false).description =
             "Blue when cool, white when normal, amber when warm";
         {
-            ui::FormRow &cool = form_.add_stepper(kCool, "Blue up to", signal::kCoolDefault,
-                                                  signal::kTemperatureMin,
-                                                  signal::kTemperatureMax - signal::kTemperatureGap);
-            cool.stepper.set_suffix(" \xC2\xB0" "C");
+            ui::FormRow &cool = form_.add_stepper(
+                kCool, "Blue up to", signal::kCoolDefault, signal::kTemperatureMin,
+                signal::kTemperatureMax - signal::kTemperatureGap);
+            cool.stepper.set_suffix(" \xC2\xB0"
+                                    "C");
             cool.description = "At this temperature and below the light is blue";
             ui::FormRow &warm = form_.add_stepper(kWarm, "Amber from", signal::kWarmDefault,
                                                   signal::kTemperatureMin + signal::kTemperatureGap,
                                                   signal::kTemperatureMax);
-            warm.stepper.set_suffix(" \xC2\xB0" "C");
+            warm.stepper.set_suffix(" \xC2\xB0"
+                                    "C");
             warm.description = "At this temperature and above the light is amber; white halfway";
         }
     }
@@ -348,7 +350,8 @@ class ColourScreen final : public app::Concept
         const signal::Status &status = link.status();
         const int celsius = std::max(status.cpu, status.soc);
         if (temperature_on() && celsius > 0)
-            return signal::temperature_mix(celsius, form_.stepper_value(kCool), form_.stepper_value(kWarm));
+            return signal::temperature_mix(celsius, form_.stepper_value(kCool),
+                                           form_.stepper_value(kWarm));
         return mix();
     }
 
@@ -521,8 +524,11 @@ class ColourScreen final : public app::Concept
             paint.heading("The light shows the temperature", x, y, 30.0f, look.text);
             char text[96];
             if (status.cpu >= 0 || status.soc >= 0)
-                std::snprintf(text, sizeof(text), "CPU %d \xC2\xB0" "C, SoC %d \xC2\xB0" "C: %s", status.cpu, status.soc,
-                              mix_text(shown_target(link)).c_str());
+                std::snprintf(text, sizeof(text),
+                              "CPU %d \xC2\xB0"
+                              "C, SoC %d \xC2\xB0"
+                              "C: %s",
+                              status.cpu, status.soc, mix_text(shown_target(link)).c_str());
             else
                 std::snprintf(text, sizeof(text), "Waiting for the console's temperature");
             paint.body(text, x, y + 46.0f, 22.0f, look.text_muted);

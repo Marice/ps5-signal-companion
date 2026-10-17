@@ -4,6 +4,7 @@
 #include "signal/service.hpp"
 
 #include "core/save_file.hpp"
+#include "signal/version.hpp"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -43,10 +44,9 @@ struct Endpoint
 };
 
 constexpr Endpoint kEndpoints[] = {
-    {"GET", "/status"}, {"GET", "/config"}, {"PUT", "/config"},
-    {"POST", "/color"}, {"POST", "/beep"},  {"POST", "/led"},
-    {"POST", "/stop"},  {"PUSH", ""},       {"POST", "/quit"},
-    {"POST", "/beeper"},
+    {"GET", "/status"}, {"GET", "/config"},  {"PUT", "/config"}, {"POST", "/color"},
+    {"POST", "/beep"},  {"POST", "/led"},    {"POST", "/stop"},  {"PUSH", ""},
+    {"POST", "/quit"},  {"POST", "/beeper"},
 };
 static_assert(std::size(kEndpoints) == static_cast<std::size_t>(Call::count));
 
@@ -368,6 +368,11 @@ bool Link::can_start() const
             elf_ = std::move(data);
     }
     return payload_ == 1;
+}
+
+std::string Link::bundled_version() const
+{
+    return can_start() ? payload_version(elf_) : std::string();
 }
 
 void Link::start_service()

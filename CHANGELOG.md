@@ -4,6 +4,21 @@ All notable changes to Signal Companion are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Versions are the
 app's `contentVersion`.
 
+## [Unreleased]
+
+### Added
+- **Beeper volume** on the Status screen: high, medium or low.
+- **Temperature light** on the Colour screen: the light shows the console's temperature, blue when cool, white when
+  normal, amber when warm, with the limits to adjust. Status shows the CPU and SoC temperatures.
+- **Updates reach ps5-autoloader:** when the app opens, it replaces an older ps5-signal in ps5-autoloader's folder
+  with its own and says so. A newer or the same version stays.
+- **An older ps5-signal is pointed out:** when the running ps5-signal is older than the app's, Status says so and
+  "Restart ps5-signal" starts the new one.
+
+### Changed
+- Carries ps5-signal 0.2.0: it no longer turns the console's beep setting off, leaves the light to the console in
+  rest mode, and answers again after waking.
+
 ## [v00.001.000] - 2026-10-16
 
 First release.

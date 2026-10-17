@@ -25,11 +25,12 @@ constexpr int kMaxPauseMs = 2000;
 constexpr int kDefaultPauseMs = 200;
 constexpr int kMinStepMs = 250;
 constexpr int kMaxStepMs = 10000;
-constexpr int kTones = 4;  // 0 silent, 1 short, 2 error tone, 3 long
-constexpr int kLevels = 3; // 0 bright, 1 medium, 2 dim
+constexpr int kTones = 4;   // 0 silent, 1 short, 2 error tone, 3 long
+constexpr int kLevels = 3;  // 0 bright, 1 medium, 2 dim
 constexpr int kVolumes = 3; // 0 high, 1 medium, 2 low
-// The temperature on the LED: blue up to cool, white halfway, amber from warm on. Reviewers measured the SoC at
-// about 60-70 C while gaming; the console's own sensor may read differently, hence a range of the player's.
+// The temperature on the LED: blue up to cool, white halfway, amber from warm on. Reviewers
+// measured the SoC at about 60-70 C while gaming; the console's own sensor may read differently,
+// hence a range of the player's.
 constexpr int kCoolDefault = 45;
 constexpr int kWarmDefault = 70;
 constexpr int kTemperatureMin = 20;

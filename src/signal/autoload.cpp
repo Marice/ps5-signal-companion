@@ -5,6 +5,7 @@
 
 #include "core/save_file.hpp"
 #include "signal/service.hpp"
+#include "signal/version.hpp"
 
 #include <cstdio>
 #include <vector>
@@ -121,6 +122,28 @@ std::string autoload_add(const std::string &directory)
     if (!error.empty())
         return error;
     return save::write_atomic(list_path(directory), autoload_with(list));
+}
+
+AutoloadRefresh autoload_refresh(const std::string &directory)
+{
+    AutoloadRefresh refresh;
+    if (!autoload_state(directory).listed)
+        return refresh;
+    std::string elf;
+    if (!save::read_file(assets_path() + "/payload/ps5-signal.elf", &elf, kMaxPayload))
+        return refresh;
+    refresh.to = payload_version(elf);
+    if (refresh.to.empty())
+        return refresh;
+    const std::string path = directory + "/" + kAutoloadName;
+    std::string copy;
+    const bool found = save::read_file(path, &copy, kMaxPayload);
+    refresh.from = found ? payload_version(copy) : std::string();
+    if (found && compare_versions(refresh.from, refresh.to) >= 0)
+        return refresh;
+    refresh.error = save::write_atomic(path, elf);
+    refresh.updated = refresh.error.empty();
+    return refresh;
 }
 
 std::string autoload_remove(const std::string &directory)

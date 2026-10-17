@@ -11,6 +11,7 @@
 #include "concepts/companion/look.hpp"
 #include "core/tween.hpp"
 #include "signal/autoload.hpp"
+#include "signal/version.hpp"
 #include "ui/components/dialog.hpp"
 #include "ui/components/form.hpp"
 #include "ui/components/toast.hpp"
@@ -121,6 +122,11 @@ class StatusScreen final : public app::Concept
         age_ = 0.0f;
         form_.enter();
         signal::link().refresh();
+        if (!autoload_checked_)
+        {
+            autoload_checked_ = true;
+            refresh_autoload();
+        }
     }
 
     void update(const InputFrame &input, float dt, app::Feedback &feedback) override
@@ -199,7 +205,8 @@ class StatusScreen final : public app::Concept
             ui::FormRow &volume = form_.add_choice(
                 kVolume, "Beeper volume",
                 {signal::volume_name(0), signal::volume_name(1), signal::volume_name(2)}, 1);
-            volume.description = "The console keeps it: the same setting as Beep and Light in the system settings";
+            volume.description =
+                "The console keeps it: the same setting as Beep and Light in the system settings";
             volume.choice.style.wrap = false;
         }
         form_.add_value(kTemperature, "Temperature", "-");
@@ -245,6 +252,26 @@ class StatusScreen final : public app::Concept
         toasts_.style.reduced_motion = reduced_;
     }
 
+    // Restart says so when the running ps5-signal is older than the app's; a toast says it once.
+    void show_version(const signal::Link &link, const signal::Status &status)
+    {
+        const std::string bundled = link.bundled_version();
+        const bool older =
+            !bundled.empty() && signal::compare_versions(status.version, bundled) < 0;
+        if (ui::FormRow *row = form_.row(kRestart))
+            row->description =
+                older ? "ps5-signal " +
+                            (status.version.empty() ? std::string("(older)") : status.version) +
+                            " runs; this app carries " + bundled + ": restart to use it"
+                      : "Stops it and starts the version in this app, after an update";
+        if (older && !older_announced_)
+        {
+            older_announced_ = true;
+            toasts_.push(ui::StatusKind::info, "An older ps5-signal runs",
+                         "Restart ps5-signal to use version " + bundled);
+        }
+    }
+
     void show_status(const signal::Link &link, app::Feedback &feedback)
     {
         const bool online = link.online();
@@ -288,17 +315,22 @@ class StatusScreen final : public app::Concept
             return;
         }
         const signal::Status &status = link.status();
+        show_version(link, status);
         form_.set_value_text(kSound, status.muted == 1   ? "Muted in the settings"
                                      : status.muted == 0 ? "On"
                                                          : "Unknown");
         form_.set_disabled(kVolume, false);
-        // The console's own setting, unless the player just changed it here (the answer may lag a check).
+        // The console's own setting, unless the player just changed it here (the answer may lag a
+        // check).
         if (status.volume >= 0 && !volume_changed_)
             form_.set_choice(kVolume, status.volume);
         char text[64];
         if (status.cpu >= 0 || status.soc >= 0)
-            std::snprintf(text, sizeof(text), "CPU %d \xC2\xB0" "C  SoC %d \xC2\xB0" "C%s", status.cpu,
-                          status.soc, status.temperature ? ", on the light" : "");
+            std::snprintf(text, sizeof(text),
+                          "CPU %d \xC2\xB0"
+                          "C  SoC %d \xC2\xB0"
+                          "C%s",
+                          status.cpu, status.soc, status.temperature ? ", on the light" : "");
         else
             std::snprintf(text, sizeof(text), "Unknown");
         form_.set_value_text(kTemperature, text);
@@ -382,6 +414,20 @@ class StatusScreen final : public app::Concept
             }
         }
         start_seen_ = now;
+    }
+
+    // An older ps5-signal in ps5-autoloader's folder is replaced by the app's, once per visit of
+    // the app.
+    void refresh_autoload()
+    {
+        const signal::AutoloadRefresh refresh = signal::autoload_refresh();
+        if (refresh.updated)
+            toasts_.push(ui::StatusKind::success, "ps5-autoloader updated",
+                         "ps5-signal " + refresh.to + " starts with the console from now on" +
+                             (refresh.from.empty() ? std::string(" (it had an older version)")
+                                                   : " (it had " + refresh.from + ")"));
+        else if (!refresh.error.empty())
+            toasts_.push(ui::StatusKind::warning, "ps5-autoloader not updated", refresh.error);
     }
 
     // Adds ps5-signal to ps5-autoloader's list, or takes it out; a failure puts the switch back.
@@ -499,6 +545,8 @@ class StatusScreen final : public app::Concept
     bool asked_ = false;
     bool volume_changed_ = false;
     bool start_announced_ = false;
+    bool autoload_checked_ = false;
+    bool older_announced_ = false;
 };
 
 } // namespace

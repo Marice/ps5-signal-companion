@@ -26,11 +26,22 @@ struct AutoloadState
     bool listed = false; // ps5-signal.elf is in it
 };
 
+struct AutoloadRefresh
+{
+    bool updated = false;
+    std::string from; // the copy's version before ("" when older than 0.2.0)
+    std::string to;   // the app's version
+    std::string error;
+};
+
 // The list as it is now. directory: for tests; the app uses kAutoloadDirectory.
 AutoloadState autoload_state(const std::string &directory = kAutoloadDirectory);
 // Copies the bundled ps5-signal.elf and puts it last in the list (once).
 // Returns an error, or "".
 std::string autoload_add(const std::string &directory = kAutoloadDirectory);
+// When ps5-signal is in the list and its copy is older than the app's (or
+// missing), puts the app's in its place. A newer or the same version stays.
+AutoloadRefresh autoload_refresh(const std::string &directory = kAutoloadDirectory);
 // Takes it, and the wait line before it, out of the list and removes the copy.
 std::string autoload_remove(const std::string &directory = kAutoloadDirectory);
 
