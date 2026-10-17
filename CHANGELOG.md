@@ -4,7 +4,7 @@ All notable changes to Signal Companion are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Versions are the
 app's `contentVersion`.
 
-## [Unreleased]
+## [v00.002.000] - 2026-10-17
 
 ### Added
 - **Beeper volume** on the Status screen: high, medium or low.
