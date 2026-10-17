@@ -4,8 +4,7 @@ A PS5 homebrew app (PPSA69426) for [ps5-signal](https://github.com/Marice/ps5-si
 that plays beeps and light patterns on the console. With this app you choose the colour of the console's light
 and edit the tune and light that ps5-signal plays when it starts.
 
-Not tested on a console yet. The screens are tested on a PC against the ps5-signal service built for the PC
-(see [Checking it on a PC](#checking-it-on-a-pc)).
+Tested on 13.60fw on a PS5 PRO
 
 ![The Colour screen](docs/media/companion/colour.png)
 
