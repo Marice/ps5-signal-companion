@@ -14,6 +14,7 @@ namespace
 
 constexpr const char *kToneNames[kTones] = {"Silent", "Short", "Error tone", "Long"};
 constexpr const char *kLevelNames[kLevels] = {"Bright", "Medium", "Dim"};
+constexpr const char *kVolumeNames[kVolumes] = {"High", "Medium", "Low"};
 constexpr const char *kLedTitles[kLedNames] = {"Blue", "White", "Orange", "Off"};
 constexpr const char *kLedKeys[kLedNames] = {"blue", "white", "orange", "off"};
 
@@ -300,6 +301,19 @@ bool parse_config(const JsonValue &root, Config &out, std::string &error)
         }
         config.hold = true;
     }
+    const JsonValue &temperature = root["temperature_led"];
+    if (!temperature.is_null())
+    {
+        if (!temperature.is_object() ||
+            !read_int(temperature, "cool", kTemperatureMin, kTemperatureMax, kCoolDefault, config.cool) ||
+            !read_int(temperature, "warm", kTemperatureMin, kTemperatureMax, kWarmDefault, config.warm) ||
+            config.warm - config.cool < kTemperatureGap)
+        {
+            error = "temperature_led: null, or cool and warm 20-100 C with cool at least 4 below warm";
+            return false;
+        }
+        config.temperature = true;
+    }
     out = std::move(config);
     return true;
 }
@@ -334,6 +348,10 @@ bool parse_status(std::string_view text, Status &out)
     status.color_available = color["available"].as_bool();
     status.color = {read_setting(color["blue"]), read_setting(color["white"]),
                     read_setting(color["amber"])};
+    const JsonValue &temperature = root["temperature"];
+    status.cpu = read_setting(temperature["cpu"]);
+    status.soc = read_setting(temperature["soc"]);
+    status.temperature = temperature["led"].as_bool();
     const JsonValue &held = color["held"];
     if (held.is_object())
     {
@@ -364,6 +382,19 @@ std::string config_json(const Config &config)
     {
         out += "{ ";
         append_mix(out, config.held);
+        out += " }";
+    }
+    else
+    {
+        out += "null";
+    }
+    out += ",\n  \"temperature_led\": ";
+    if (config.temperature)
+    {
+        out += "{ \"cool\": ";
+        append_int(out, config.cool);
+        out += ", \"warm\": ";
+        append_int(out, config.warm);
         out += " }";
     }
     else
@@ -409,6 +440,33 @@ std::string color_request(const Mix &mix)
     append_mix(out, mix);
     out += "}";
     return out;
+}
+
+std::string beeper_request(int volume)
+{
+    std::string out = "{\"volume\": ";
+    append_int(out, volume);
+    out += "}";
+    return out;
+}
+
+const char *volume_name(int volume)
+{
+    return volume >= 0 && volume < kVolumes ? kVolumeNames[volume] : "?";
+}
+
+Mix temperature_mix(int celsius, int cool, int warm)
+{
+    // As ps5-signal's temperature_color (src/temperature.c), integer for integer.
+    const auto blend = [](int from, int to, int step, int steps) { return from + (to - from) * step / steps; };
+    const int middle = (cool + warm) / 2;
+    if (celsius <= cool)
+        return {255, 0, 0};
+    if (celsius < middle)
+        return {blend(255, 0, celsius - cool, middle - cool), blend(0, 255, celsius - cool, middle - cool), 0};
+    if (celsius < warm)
+        return {0, blend(255, 0, celsius - middle, warm - middle), blend(0, 255, celsius - middle, warm - middle)};
+    return {0, 0, 255};
 }
 
 std::string system_color_request()

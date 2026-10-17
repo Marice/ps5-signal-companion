@@ -27,6 +27,14 @@ constexpr int kMinStepMs = 250;
 constexpr int kMaxStepMs = 10000;
 constexpr int kTones = 4;  // 0 silent, 1 short, 2 error tone, 3 long
 constexpr int kLevels = 3; // 0 bright, 1 medium, 2 dim
+constexpr int kVolumes = 3; // 0 high, 1 medium, 2 low
+// The temperature on the LED: blue up to cool, white halfway, amber from warm on. Reviewers measured the SoC at
+// about 60-70 C while gaming; the console's own sensor may read differently, hence a range of the player's.
+constexpr int kCoolDefault = 45;
+constexpr int kWarmDefault = 70;
+constexpr int kTemperatureMin = 20;
+constexpr int kTemperatureMax = 100;
+constexpr int kTemperatureGap = 4; // cool at least this far below warm
 
 // The LED's three channels, 0-255 each. There is no free RGB colour.
 struct Mix
@@ -80,6 +88,9 @@ struct Config
     std::vector<LedStep> leds;   // empty: no startup light
     bool hold = false;           // led_color is set ...
     Mix held;                    // ... to this; otherwise the system's colour
+    bool temperature = false;    // temperature_led: the LED shows the temperature ...
+    int cool = kCoolDefault;     // ... blue up to here
+    int warm = kWarmDefault;     // ... amber from here
 
     bool operator==(const Config &) const = default;
 };
@@ -98,6 +109,9 @@ struct Status
     Mix color; // what the LED shows now (-1 per channel when unknown)
     bool hold = false;
     Mix held;
+    int cpu = -1; // degrees C, -1 when the console doesn't say
+    int soc = -1;
+    bool temperature = false; // the LED shows the temperature
 };
 
 // How long a tune takes: its pauses (the last beep's is unused). And a light, once.
@@ -125,6 +139,10 @@ std::string beep_request(const std::vector<BeepStep> &beeps);
 std::string led_request(const std::vector<LedStep> &leds, int repeat = 1);
 std::string color_request(const Mix &mix);
 std::string system_color_request();
+std::string beeper_request(int volume);
+const char *volume_name(int volume);
+// The colour the LED shows for a temperature, as the service mixes it.
+Mix temperature_mix(int celsius, int cool, int warm);
 // The "error" of an error answer, or an empty string.
 std::string error_text(std::string_view body);
 

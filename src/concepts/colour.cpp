@@ -16,6 +16,7 @@
 #include "ui/components/toast.hpp"
 #include "ui/widgets.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -46,7 +47,13 @@ enum Id
     kUndo,
     kSlot,
     kStore,
+    kTemperatureLed,
+    kCool,
+    kWarm,
 };
+
+// A change to the temperature settings is saved once they stay put this long.
+constexpr float kTemperatureSaveAfter = 0.8f;
 
 struct Preset
 {
@@ -102,7 +109,10 @@ constexpr app::TourStep kTour[] = {
     {0.2f, 0, Direction::down},
     {0.2f, 0, Direction::down},
     {0.2f, 0, Direction::right},
-    {0.8f, 0, Direction::none, "colour-mine"},
+    {0.8f, 0, Direction::down, "colour-mine"},
+    {0.2f, 0, Direction::down},
+    {0.3f, 0, Direction::right},
+    {2.0f, 0, Direction::down, "colour-temperature"},
 };
 
 class ColourScreen final : public app::Concept
@@ -160,15 +170,20 @@ class ColourScreen final : public app::Concept
         }
         enable(link);
         try_on_console(link);
+        since_temperature_change_ += dt;
+        if (temperature_dirty_ && since_temperature_change_ >= kTemperatureSaveAfter)
+            save_temperature(link);
 
         signal::Reply reply;
         if (request_.done(link, reply))
             report(reply);
         form_.update(dt);
         toasts_.update(dt, feedback);
+        const signal::Mix target = shown_target(link);
+        const int channels[] = {target.blue, target.white, target.amber};
         for (int i = 0; i < 3; ++i)
         {
-            shown_[i].target = static_cast<float>(channel(i));
+            shown_[i].target = static_cast<float>(channels[i]);
             shown_[i].update(dt, reduced_ ? 60.0f : 14.0f);
         }
     }
@@ -227,6 +242,44 @@ class ColourScreen final : public app::Concept
         { draw_slot(canvas, area, index); };
         form_.add_action(kStore, "Store the mix here").description =
             "Keeps the sliders' mix as this colour, in the app";
+
+        form_.add_header("Temperature");
+        form_.add_toggle(kTemperatureLed, "Show the temperature", false).description =
+            "Blue when cool, white when normal, amber when warm";
+        {
+            ui::FormRow &cool = form_.add_stepper(kCool, "Blue up to", signal::kCoolDefault,
+                                                  signal::kTemperatureMin,
+                                                  signal::kTemperatureMax - signal::kTemperatureGap);
+            cool.stepper.set_suffix(" \xC2\xB0" "C");
+            cool.description = "At this temperature and below the light is blue";
+            ui::FormRow &warm = form_.add_stepper(kWarm, "Amber from", signal::kWarmDefault,
+                                                  signal::kTemperatureMin + signal::kTemperatureGap,
+                                                  signal::kTemperatureMax);
+            warm.stepper.set_suffix(" \xC2\xB0" "C");
+            warm.description = "At this temperature and above the light is amber; white halfway";
+        }
+    }
+
+    // The temperature settings as the form shows them.
+    bool temperature_on() const
+    {
+        return form_.toggle_value(kTemperatureLed);
+    }
+
+    // Saves the temperature settings with the rest of the config as the service has it.
+    void save_temperature(signal::Link &link)
+    {
+        temperature_dirty_ = false;
+        if (!link.online() || !link.has_config())
+            return;
+        signal::Config config = link.config();
+        config.temperature = temperature_on();
+        config.cool = form_.stepper_value(kCool);
+        config.warm = form_.stepper_value(kWarm);
+        if (config == link.config())
+            return;
+        request_.start(link, signal::Call::save_config, signal::config_json(config));
+        done_text_ = config.temperature ? "Temperature on the light" : "Colour on the light";
     }
 
     void draw_slot(ui::Canvas &canvas, const Rect &area, int index) const
@@ -289,6 +342,16 @@ class ColourScreen final : public app::Concept
 
     // The saved colour, once the config arrives (and again after a save). A
     // config that changed elsewhere does not overwrite a mix being tried.
+    // What the preview shows: the temperature's colour while it is on, otherwise the sliders.
+    signal::Mix shown_target(const signal::Link &link) const
+    {
+        const signal::Status &status = link.status();
+        const int celsius = std::max(status.cpu, status.soc);
+        if (temperature_on() && celsius > 0)
+            return signal::temperature_mix(celsius, form_.stepper_value(kCool), form_.stepper_value(kWarm));
+        return mix();
+    }
+
     void load(const signal::Link &link)
     {
         if (link.config_serial() == loaded_serial_ || (loaded_serial_ != 0 && trying_))
@@ -297,6 +360,12 @@ class ColourScreen final : public app::Concept
             return;
         loaded_serial_ = link.config_serial();
         const signal::Config &config = link.config();
+        if (!temperature_dirty_)
+        {
+            form_.set_toggle(kTemperatureLed, config.temperature);
+            form_.set_stepper(kCool, config.cool);
+            form_.set_stepper(kWarm, config.warm);
+        }
         signal::Mix start = config.held;
         if (!config.hold)
             start = link.status().color.blue >= 0 ? link.status().color : signal::Mix{0, 0, 0};
@@ -307,6 +376,21 @@ class ColourScreen final : public app::Concept
 
     void changed(int id)
     {
+        if (id == kTemperatureLed || id == kCool || id == kWarm)
+        {
+            // Cool stays at least kTemperatureGap below warm: the other one moves along.
+            const int cool = form_.stepper_value(kCool), warm = form_.stepper_value(kWarm);
+            if (warm - cool < signal::kTemperatureGap)
+            {
+                if (id == kCool)
+                    form_.set_stepper(kWarm, cool + signal::kTemperatureGap);
+                else
+                    form_.set_stepper(kCool, warm - signal::kTemperatureGap);
+            }
+            temperature_dirty_ = true;
+            since_temperature_change_ = 0.0f;
+            return;
+        }
         if (id == kSlot)
         {
             const std::optional<signal::Mix> &stored =
@@ -338,16 +422,23 @@ class ColourScreen final : public app::Concept
     void enable(const signal::Link &link)
     {
         const bool ready = link.online() && link.has_config();
-        form_.set_disabled(kSave, !ready);
-        form_.set_disabled(kSystem, !ready);
-        form_.set_disabled(kUndo, !link.online());
-        form_.set_disabled(kLive, !link.online());
+        // While the light shows the temperature, the service refuses colours: the mix waits.
+        const bool mixing = !temperature_on();
+        for (const int id : {kBlue, kWhite, kAmber, kPreset, kSlot})
+            form_.set_disabled(id, !mixing);
+        form_.set_disabled(kSave, !ready || !mixing);
+        form_.set_disabled(kSystem, !ready || !mixing);
+        form_.set_disabled(kUndo, !link.online() || !mixing);
+        form_.set_disabled(kLive, !link.online() || !mixing);
+        form_.set_disabled(kTemperatureLed, !ready);
+        form_.set_disabled(kCool, !ready || !temperature_on());
+        form_.set_disabled(kWarm, !ready || !temperature_on());
     }
 
     // The light follows the sliders, at most every kSendEvery seconds.
     void try_on_console(signal::Link &link)
     {
-        if (!link.online() || !form_.toggle_value(kLive) || !trying_)
+        if (!link.online() || !form_.toggle_value(kLive) || !trying_ || temperature_on())
             return;
         const signal::Mix now = mix();
         if (now == last_sent_ || since_sent_ < kSendEvery)
@@ -424,6 +515,21 @@ class ColourScreen final : public app::Concept
         draw_light_bar(list, {x, inside.y + 90.0f, inside.w - 72.0f, 150.0f}, shown, clock_);
 
         float y = inside.y + 300.0f;
+        if (temperature_on())
+        {
+            const signal::Status &status = link.status();
+            paint.heading("The light shows the temperature", x, y, 30.0f, look.text);
+            char text[96];
+            if (status.cpu >= 0 || status.soc >= 0)
+                std::snprintf(text, sizeof(text), "CPU %d \xC2\xB0" "C, SoC %d \xC2\xB0" "C: %s", status.cpu, status.soc,
+                              mix_text(shown_target(link)).c_str());
+            else
+                std::snprintf(text, sizeof(text), "Waiting for the console's temperature");
+            paint.body(text, x, y + 46.0f, 22.0f, look.text_muted);
+            paint.body("Blue when cool, white when normal, amber when warm", x, y + 80.0f, 22.0f,
+                       look.text_muted);
+            return;
+        }
         const signal::Mix now = mix();
         paint.heading(mix_text(now), x, y, 30.0f, look.text);
         y += 46.0f;
@@ -473,6 +579,8 @@ class ColourScreen final : public app::Concept
     tween::Spring shown_[3];
     unsigned loaded_serial_ = 0;
     bool trying_ = false;
+    bool temperature_dirty_ = false;
+    float since_temperature_change_ = 0.0f;
     float since_sent_ = 10.0f;
     float clock_ = 0.0f;
     float age_ = 0.0f;

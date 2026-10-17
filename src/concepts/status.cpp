@@ -35,6 +35,8 @@ constexpr Rect kSide{1010.0f, kTop + 10.0f, kRight - 1010.0f, 600.0f};
 enum Id
 {
     kSound = 1,
+    kVolume,
+    kTemperature,
     kBrightness,
     kColourNow,
     kHeld,
@@ -143,6 +145,13 @@ class StatusScreen final : public app::Concept
                 act(form_.changed_id(), link);
             else if (event == ui::Event::changed && form_.changed_id() == kAutoload)
                 set_autoload(form_.toggle_value(kAutoload));
+            else if (event == ui::Event::changed && form_.changed_id() == kVolume)
+            {
+                request_.start(link, signal::Call::beeper,
+                               signal::beeper_request(form_.choice_index(kVolume)));
+                done_text_ = "Beeper volume set";
+                volume_changed_ = true;
+            }
         }
         signal::Reply reply;
         if (request_.done(link, reply))
@@ -186,6 +195,14 @@ class StatusScreen final : public app::Concept
     {
         form_.add_header("Now");
         form_.add_value(kSound, "Beeper", "-");
+        {
+            ui::FormRow &volume = form_.add_choice(
+                kVolume, "Beeper volume",
+                {signal::volume_name(0), signal::volume_name(1), signal::volume_name(2)}, 1);
+            volume.description = "The console keeps it: the same setting as Beep and Light in the system settings";
+            volume.choice.style.wrap = false;
+        }
+        form_.add_value(kTemperature, "Temperature", "-");
         form_.add_value(kBrightness, "Brightness", "-");
         form_.add_value(kColourNow, "Colour", "-");
         form_.add_value(kHeld, "Kept colour", "-");
@@ -265,19 +282,26 @@ class StatusScreen final : public app::Concept
         shown_state_ = link.state();
         if (!online)
         {
-            for (const int id : {kSound, kBrightness, kColourNow, kHeld, kPlaying})
+            form_.set_disabled(kVolume, true);
+            for (const int id : {kSound, kTemperature, kBrightness, kColourNow, kHeld, kPlaying})
                 form_.set_value_text(id, "-");
             return;
         }
         const signal::Status &status = link.status();
-        char text[48];
-        if (status.muted == 1)
-            std::snprintf(text, sizeof(text), "Muted in the settings");
-        else if (status.muted == 0 && status.volume >= 0)
-            std::snprintf(text, sizeof(text), "On, volume %d", status.volume);
+        form_.set_value_text(kSound, status.muted == 1   ? "Muted in the settings"
+                                     : status.muted == 0 ? "On"
+                                                         : "Unknown");
+        form_.set_disabled(kVolume, false);
+        // The console's own setting, unless the player just changed it here (the answer may lag a check).
+        if (status.volume >= 0 && !volume_changed_)
+            form_.set_choice(kVolume, status.volume);
+        char text[64];
+        if (status.cpu >= 0 || status.soc >= 0)
+            std::snprintf(text, sizeof(text), "CPU %d \xC2\xB0" "C  SoC %d \xC2\xB0" "C%s", status.cpu,
+                          status.soc, status.temperature ? ", on the light" : "");
         else
-            std::snprintf(text, sizeof(text), "%s", status.muted == 0 ? "On" : "Unknown");
-        form_.set_value_text(kSound, text);
+            std::snprintf(text, sizeof(text), "Unknown");
+        form_.set_value_text(kTemperature, text);
         constexpr const char *kLevels[] = {"Bright", "Medium", "Dim"};
         form_.set_value_text(kBrightness, status.led_available
                                               ? setting_text(status.level, kLevels, 3)
@@ -412,6 +436,7 @@ class StatusScreen final : public app::Concept
 
     void report(const signal::Reply &reply)
     {
+        volume_changed_ = false;
         const std::string problem = reply_problem(reply);
         if (problem.empty())
             toasts_.push(ui::StatusKind::success, done_text_);
@@ -472,6 +497,7 @@ class StatusScreen final : public app::Concept
     ui::Dialog dialog_;
     int start_toast_ = -1;
     bool asked_ = false;
+    bool volume_changed_ = false;
     bool start_announced_ = false;
 };
 
