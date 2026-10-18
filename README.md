@@ -21,6 +21,10 @@ Tested on 13.60fw on a PS5 PRO
 4. **Choose your colour and tune:** **Colour** → *Keep this colour*; **Startup** → Square saves the tune and the
    light show.
 
+**The suite:** the Payloads screen starts, restarts and updates ps5-exporter, ps5-homeassistant and ps5-signal,
+and puts them in ps5-autoloader's list in that order, 3 seconds apart. It also sets ps5-homeassistant's MQTT broker:
+address, port, user and password.
+
 **Updating:** install the new version of the app and open it. When ps5-autoloader starts ps5-signal, the app replaces
 an older copy in its folder by itself and says so. When an older ps5-signal runs, the Status screen says so: choose
 **Restart ps5-signal** to use the new one. A copy from before ps5-signal 0.2.0 counts as older; a newer one stays.

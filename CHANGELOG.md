@@ -4,6 +4,18 @@ All notable changes to Signal Companion are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Versions are the
 app's `contentVersion`.
 
+## [Unreleased]
+
+### Added
+- **Payloads screen** for the suite: ps5-exporter, ps5-homeassistant and ps5-signal. For each: whether it runs and
+  in which version, Start or Restart (with "Update" when the app carries a newer one), and "Start with
+  ps5-autoloader". The app carries all three.
+- **ps5-autoloader keeps the suite's order:** ps5-exporter, ps5-homeassistant, ps5-signal, 3 seconds apart. Each
+  goes before the first of the others that comes after it, else last. An older copy of any of the three is replaced
+  when the screen opens.
+- **Home Assistant broker** on the Payloads screen: the broker's address, port, the console's user and password
+  (masked), typed with the on-screen keyboard, and whether ps5-homeassistant is connected.
+
 ## [v00.002.000] - 2026-10-17
 
 ### Added

@@ -17,5 +17,6 @@ namespace hui::concepts
 std::unique_ptr<app::Concept> make_status(app::Context &context);
 std::unique_ptr<app::Concept> make_colour(app::Context &context);
 std::unique_ptr<app::Concept> make_startup(app::Context &context);
+std::unique_ptr<app::Concept> make_payloads(app::Context &context);
 
 } // namespace hui::concepts

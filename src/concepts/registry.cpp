@@ -13,6 +13,7 @@ std::span<const ConceptFactory> concept_registry()
         concepts::make_status,
         concepts::make_colour,
         concepts::make_startup,
+        concepts::make_payloads,
     };
     return kFactories;
 }

@@ -14,8 +14,9 @@ namespace hui::signal
 
 constexpr std::string_view kVersionMarker = "PS5SIGNAL_VER:";
 
-// The version in an ELF file's marker, or "" when it has none.
-std::string payload_version(std::string_view elf);
+// The version in an ELF file's marker, or "" when it has none. Each payload has its own
+// marker: PS5SIGNAL_VER:, PS5EXPORTER_VER: (ps5-exporter 0.3.0), PS5HA_VER: (ps5-homeassistant).
+std::string payload_version(std::string_view elf, std::string_view marker = kVersionMarker);
 // Below zero, zero or above zero as a is older than, the same as or newer
 // than b. Dotted numbers ("0.10.0" is newer than "0.9.1"); "" (no marker)
 // is older than any version.

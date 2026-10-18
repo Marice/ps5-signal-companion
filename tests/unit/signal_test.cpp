@@ -7,6 +7,7 @@
 #include "signal/json.hpp"
 #include "signal/model.hpp"
 #include "signal/service.hpp"
+#include "signal/suite.hpp"
 #include "signal/version.hpp"
 
 #include <gtest/gtest.h>
@@ -407,6 +408,79 @@ TEST(SignalAutoload, LeavesTheFolderAloneWhenNotListed)
     write(folders.loader / "ps5-signal.elf", elf_with(""));
     EXPECT_FALSE(autoload_refresh(folders.loader.string()).updated);
     EXPECT_EQ(read(folders.loader / "ps5-signal.elf"), elf_with(""));
+}
+
+// ---- the suite: the order in ps5-autoloader's list, versions, the broker ----------
+
+TEST(SignalSuite, KeepsTheSuiteOrderInTheList)
+{
+    const std::string base = "etaHEN.elf\n!3000\nnanodns.elf\n";
+    // Alone, each goes last.
+    EXPECT_EQ(autoload_with(base, "ps5-exporter.elf"), base + "!3000\nps5-exporter.elf\n");
+    // The exporter goes before ps5-signal, and keeps the wait in front of ps5-signal.
+    const std::string with_signal = base + "!3000\nps5-signal.elf\n";
+    EXPECT_EQ(autoload_with(with_signal, "ps5-exporter.elf"),
+              base + "!3000\nps5-exporter.elf\n!3000\nps5-signal.elf\n");
+    // ps5-homeassistant between the two.
+    const std::string both = base + "!3000\nps5-exporter.elf\n!3000\nps5-signal.elf\n";
+    EXPECT_EQ(autoload_with(both, "ps5-homeassistant.elf"),
+              base +
+                  "!3000\nps5-exporter.elf\n!3000\nps5-homeassistant.elf\n!3000\nps5-signal.elf\n");
+    // ps5-signal after the others, as before.
+    const std::string others = base + "!3000\nps5-exporter.elf\n!3000\nps5-homeassistant.elf\n";
+    EXPECT_EQ(autoload_with(others, "ps5-signal.elf"), others + "!3000\nps5-signal.elf\n");
+    // In an empty list, no wait.
+    EXPECT_EQ(autoload_with("", "ps5-homeassistant.elf"), "ps5-homeassistant.elf\n");
+    // Already listed: unchanged.
+    EXPECT_EQ(autoload_with(both, "ps5-exporter.elf"), both);
+}
+
+TEST(SignalSuite, TakesOnePayloadOutWithItsWait)
+{
+    const std::string all = "etaHEN.elf\n!3000\nps5-exporter.elf\n!3000\nps5-homeassistant.elf\n!"
+                            "3000\nps5-signal.elf\n";
+    EXPECT_EQ(autoload_without(all, "ps5-homeassistant.elf"),
+              "etaHEN.elf\n!3000\nps5-exporter.elf\n!3000\nps5-signal.elf\n");
+    EXPECT_EQ(autoload_without("ps5-exporter.elf\n!3000\nps5-signal.elf\n", "ps5-exporter.elf"),
+              "ps5-signal.elf\n");
+    EXPECT_EQ(autoload_without(all, "other.elf"), all);
+}
+
+TEST(SignalSuite, ReadsEachPayloadsVersion)
+{
+    EXPECT_EQ(reported_version(Payload::exporter,
+                               "ps5-exporter 0.3.0\n\nGET /metrics  Prometheus metrics\n"),
+              "0.3.0");
+    EXPECT_EQ(reported_version(Payload::exporter, "not found\n"), "");
+    EXPECT_EQ(
+        reported_version(
+            Payload::homeassistant,
+            R"({"service":"ps5-homeassistant","version":"0.1.0","state":"connected","error":""})"),
+        "0.1.0");
+    EXPECT_EQ(reported_version(Payload::signal, R"({"service":"ps5-signal","version":"0.2.0"})"),
+              "0.2.0");
+    EXPECT_EQ(reported_version(Payload::signal, "garbage"), "");
+    EXPECT_EQ(
+        payload_version(std::string("xxPS5HA_VER:0.1.0") + std::string(1, '\0'), "PS5HA_VER:"),
+        "0.1.0");
+    EXPECT_EQ(payload_version("PS5EXPORTER_VER:0.3.0", "PS5SIGNAL_VER:"), "");
+}
+
+TEST(SignalSuite, BuildsTheBrokerRequest)
+{
+    BrokerConfig config;
+    config.host = "192.168.1.10";
+    config.port = 1883;
+    config.username = "ps5";
+    config.interval = 10;
+    EXPECT_EQ(broker_request(config, ""),
+              R"({"host":"192.168.1.10","port":1883,"username":"ps5","interval":10})");
+    EXPECT_EQ(
+        broker_request(config, "s3cret!"),
+        R"({"host":"192.168.1.10","port":1883,"username":"ps5","interval":10,"password":"s3cret!"})");
+    JsonValue root;
+    EXPECT_TRUE(parse_json(broker_request(config, "a\"b"), root));
+    EXPECT_EQ(root["password"].as_string(), "a\"b");
 }
 
 } // namespace

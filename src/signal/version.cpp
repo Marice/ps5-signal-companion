@@ -38,12 +38,12 @@ std::vector<long> parts(std::string_view version)
 
 } // namespace
 
-std::string payload_version(std::string_view elf)
+std::string payload_version(std::string_view elf, std::string_view marker)
 {
-    const std::size_t at = elf.find(kVersionMarker);
+    const std::size_t at = elf.find(marker);
     if (at == std::string_view::npos)
         return {};
-    std::size_t end = at + kVersionMarker.size();
+    std::size_t end = at + marker.size();
     const std::size_t start = end;
     while (end < elf.size() && end - start < 32 && version_char(elf[end]))
         ++end;
