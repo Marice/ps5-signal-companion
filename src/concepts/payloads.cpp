@@ -51,6 +51,9 @@ enum BrokerId
     kPower,
 };
 
+constexpr const char *kPowerHelp =
+    "Buttons in Home Assistant; power off ends the jailbreak until you run the exploit again";
+
 int row_id(signal::Payload payload, int row)
 {
     return (static_cast<int>(payload) + 1) * kBlock + row;
@@ -219,9 +222,7 @@ class PayloadsScreen final : public app::Concept
             "A Home Assistant user for the console, such as ps5";
         form_.add_action(kPassword, "Password").description =
             "That user's password; it is not shown again";
-        form_.add_toggle(kPower, "Rest mode and power off").description =
-            "Buttons in Home Assistant; power off ends the jailbreak until you run the exploit "
-            "again";
+        form_.add_toggle(kPower, "Rest mode and power off").description = kPowerHelp;
         for (const int id : {kHost, kPort, kUser, kPassword})
             form_.row(id)->chevron = true;
     }
@@ -291,9 +292,17 @@ class PayloadsScreen final : public app::Concept
         set_action_text(kPort, port);
         set_action_text(kUser, broker_.username.empty() ? "None" : broker_.username);
         set_action_text(kPassword, broker_.password_set ? "Set" : "Not set");
-        for (const int id : {kHost, kPort, kUser, kPassword, kPower})
+        for (const int id : {kHost, kPort, kUser, kPassword})
             form_.set_disabled(id, !ha || !broker.known);
-        form_.set_toggle(kPower, broker_.power_actions);
+        // An older ps5-homeassistant ignores the field and would seem to accept it: off, and say
+        // why.
+        const bool power_known = ha && broker.known && broker_.power_supported;
+        form_.set_disabled(kPower, !power_known);
+        form_.set_toggle(kPower, power_known && broker_.power_actions);
+        if (ui::FormRow *row = form_.row(kPower))
+            row->description = ha && broker.known && !broker_.power_supported
+                                   ? "Needs ps5-homeassistant 0.2.0 or later: restart it above"
+                                   : kPowerHelp;
         if (broker.saved != saved_seen_)
         {
             saved_seen_ = broker.saved;

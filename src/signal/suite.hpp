@@ -73,6 +73,8 @@ struct BrokerConfig
     bool password_set = false;
     int interval = 10;
     bool power_actions = false; // Home Assistant may put the console in rest mode or turn it off
+    bool power_supported =
+        false; // the running ps5-homeassistant knows power_actions (0.2.0 or later)
 };
 
 struct BrokerState

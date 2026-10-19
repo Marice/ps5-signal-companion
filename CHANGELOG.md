@@ -4,6 +4,13 @@ All notable changes to Signal Companion are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Versions are the
 app's `contentVersion`.
 
+## [v00.004.001] - 2026-10-19
+
+### Fixed
+- Payloads screen: "Rest mode and power off" is off and greyed out while an older ps5-homeassistant runs (before
+  0.2.0), with "Needs ps5-homeassistant 0.2.0 or later: restart it above". It used to accept the switch, say the
+  broker was saved, and spring back.
+
 ## [v00.004.000] - 2026-10-19
 
 ### Added

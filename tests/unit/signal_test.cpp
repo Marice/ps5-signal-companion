@@ -472,6 +472,54 @@ TEST(SignalSuite, BuildsThePowerActionsRequest)
     EXPECT_EQ(power_request(false), "{\"power_actions\":false}");
 }
 
+// ps5-homeassistant on 9160 with a fixed GET /config; nothing answers on the other ports.
+class HomeAssistantOnly final : public Transport
+{
+  public:
+    HomeAssistantOnly(int port, std::string config) : port_(port), config_(std::move(config))
+    {
+    }
+    Reply send(std::string_view method, std::string_view path, std::string_view) override
+    {
+        if (port_ != 9160)
+            return {};
+        if (method == "GET" && path == "/config")
+            return {200, config_};
+        return {200, R"({"service":"ps5-homeassistant","state":"connected","error":""})"};
+    }
+    Reply push(int, std::string_view) override
+    {
+        return {};
+    }
+
+  private:
+    int port_;
+    std::string config_;
+};
+
+BrokerConfig broker_from(const std::string &config)
+{
+    install_suite([config](int port) { return std::make_unique<HomeAssistantOnly>(port, config); });
+    Suite &s = suite();
+    s.refresh();
+    s.wait_idle();
+    s.update(0.0f);
+    EXPECT_TRUE(s.broker().known);
+    return s.broker().config;
+}
+
+TEST(SignalSuite, KnowsWhetherHomeAssistantSupportsPowerActions)
+{
+    // 0.1.0 answers without the field (and ignores it in a PUT); 0.2.0 with it.
+    const BrokerConfig old = broker_from(R"({"host":"h","port":1883,"interval":10})");
+    EXPECT_FALSE(old.power_supported);
+    EXPECT_FALSE(old.power_actions);
+    const BrokerConfig on =
+        broker_from(R"({"host":"h","port":1883,"interval":10,"power_actions":true})");
+    EXPECT_TRUE(on.power_supported);
+    EXPECT_TRUE(on.power_actions);
+}
+
 TEST(SignalSuite, BuildsTheBrokerRequest)
 {
     BrokerConfig config;

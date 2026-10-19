@@ -203,8 +203,9 @@ void Suite::poll(Payload payload)
                 root["password_set"].is_bool() && root["password_set"].as_bool();
             broker.config.interval =
                 root["interval"].is_number() ? static_cast<int>(root["interval"].as_number()) : 10;
+            broker.config.power_supported = root["power_actions"].is_bool();
             broker.config.power_actions =
-                root["power_actions"].is_bool() && root["power_actions"].as_bool();
+                broker.config.power_supported && root["power_actions"].as_bool();
         }
         have_broker = true;
     }
