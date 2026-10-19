@@ -4,6 +4,13 @@ All notable changes to Signal Companion are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Versions are the
 app's `contentVersion`.
 
+## [v00.004.002] - 2026-10-19
+
+### Changed
+- Carries ps5-exporter 0.3.1, ps5-homeassistant 0.2.1 and ps5-signal 0.2.1. They name their process
+  (`ps5-exporter.elf`, `ps5-hass.elf`, `ps5-signal.elf`), so a process list shows them instead of `payload.elf`
+  when the app starts them.
+
 ## [v00.004.001] - 2026-10-19
 
 ### Fixed
