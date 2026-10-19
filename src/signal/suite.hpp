@@ -72,6 +72,7 @@ struct BrokerConfig
     std::string username;
     bool password_set = false;
     int interval = 10;
+    bool power_actions = false; // Home Assistant may put the console in rest mode or turn it off
 };
 
 struct BrokerState
@@ -89,6 +90,9 @@ struct BrokerState
 std::string reported_version(Payload payload, const std::string &body);
 // The body of a PUT /config for ps5-homeassistant; an empty password keeps the stored one.
 std::string broker_request(const BrokerConfig &config, const std::string &password);
+// The body of a PUT /config that changes only whether Home Assistant may use rest mode and power
+// off.
+std::string power_request(bool on);
 
 class Suite
 {
@@ -119,6 +123,7 @@ class Suite
     void start(Payload payload);
     void restart(Payload payload);
     void save_broker(const BrokerConfig &config, const std::string &password);
+    void save_power_actions(bool on);
 
     // Blocks until the worker has nothing to do (tests).
     void wait_idle();
@@ -130,6 +135,7 @@ class Suite
     void poll_all();
     void poll(Payload payload);
     void launch(Payload payload, bool restart);
+    void put_config(std::string body);
     const std::string *elf(Payload payload) const;
 
     TransportFactory factory_;

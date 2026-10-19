@@ -466,6 +466,12 @@ TEST(SignalSuite, ReadsEachPayloadsVersion)
     EXPECT_EQ(payload_version("PS5EXPORTER_VER:0.3.0", "PS5SIGNAL_VER:"), "");
 }
 
+TEST(SignalSuite, BuildsThePowerActionsRequest)
+{
+    EXPECT_EQ(power_request(true), "{\"power_actions\":true}");
+    EXPECT_EQ(power_request(false), "{\"power_actions\":false}");
+}
+
 TEST(SignalSuite, BuildsTheBrokerRequest)
 {
     BrokerConfig config;

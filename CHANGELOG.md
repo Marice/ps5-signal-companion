@@ -4,6 +4,12 @@ All notable changes to Signal Companion are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Versions are the
 app's `contentVersion`.
 
+## [Unreleased]
+
+### Added
+- Payloads screen: "Rest mode and power off" switches ps5-homeassistant's Rest mode and Power off buttons in Home
+  Assistant on or off (ps5-homeassistant 0.2.0 or later). Off by default; power off ends the jailbreak.
+
 ## [v00.003.000] - 2026-10-18
 
 ### Added

@@ -48,6 +48,7 @@ enum BrokerId
     kPort,
     kUser,
     kPassword,
+    kPower,
 };
 
 int row_id(signal::Payload payload, int row)
@@ -218,6 +219,9 @@ class PayloadsScreen final : public app::Concept
             "A Home Assistant user for the console, such as ps5";
         form_.add_action(kPassword, "Password").description =
             "That user's password; it is not shown again";
+        form_.add_toggle(kPower, "Rest mode and power off").description =
+            "Buttons in Home Assistant; power off ends the jailbreak until you run the exploit "
+            "again";
         for (const int id : {kHost, kPort, kUser, kPassword})
             form_.row(id)->chevron = true;
     }
@@ -287,8 +291,9 @@ class PayloadsScreen final : public app::Concept
         set_action_text(kPort, port);
         set_action_text(kUser, broker_.username.empty() ? "None" : broker_.username);
         set_action_text(kPassword, broker_.password_set ? "Set" : "Not set");
-        for (const int id : {kHost, kPort, kUser, kPassword})
+        for (const int id : {kHost, kPort, kUser, kPassword, kPower})
             form_.set_disabled(id, !ha || !broker.known);
+        form_.set_toggle(kPower, broker_.power_actions);
         if (broker.saved != saved_seen_)
         {
             saved_seen_ = broker.saved;
@@ -423,6 +428,13 @@ class PayloadsScreen final : public app::Concept
 
     void changed(int id)
     {
+        if (id == kPower)
+        {
+            // Shown at once; the next answer from ps5-homeassistant confirms it.
+            broker_.power_actions = form_.toggle_value(kPower);
+            signal::suite().save_power_actions(broker_.power_actions);
+            return;
+        }
         for (const signal::Payload payload : kOrder)
         {
             if (id != row_id(payload, kAutoloadRow))

@@ -83,6 +83,11 @@ std::string broker_request(const BrokerConfig &config, const std::string &passwo
     return body + "}";
 }
 
+std::string power_request(bool on)
+{
+    return on ? "{\"power_actions\":true}" : "{\"power_actions\":false}";
+}
+
 Suite::Suite(TransportFactory factory) : factory_(std::move(factory))
 {
     started_ = pthread_create(&thread_, nullptr, &Suite::thread_main, this) == 0;
@@ -198,6 +203,8 @@ void Suite::poll(Payload payload)
                 root["password_set"].is_bool() && root["password_set"].as_bool();
             broker.config.interval =
                 root["interval"].is_number() ? static_cast<int>(root["interval"].as_number()) : 10;
+            broker.config.power_actions =
+                root["power_actions"].is_bool() && root["power_actions"].as_bool();
         }
         have_broker = true;
     }
@@ -327,9 +334,18 @@ void Suite::launch(Payload payload, bool restart)
 
 void Suite::save_broker(const BrokerConfig &config, const std::string &password)
 {
-    const std::string body = broker_request(config, password);
+    put_config(broker_request(config, password));
+}
+
+void Suite::save_power_actions(bool on)
+{
+    put_config(power_request(on));
+}
+
+void Suite::put_config(std::string body)
+{
     queue(
-        [this, body]
+        [this, body = std::move(body)]
         {
             const std::unique_ptr<Transport> transport =
                 factory_(payload_info(Payload::homeassistant).port);
