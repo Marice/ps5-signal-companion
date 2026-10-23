@@ -41,6 +41,11 @@ constexpr int kStatusRow = 1;
 constexpr int kStartRow = 2;
 constexpr int kAutoloadRow = 3;
 constexpr int kBlock = 10;
+// Where updates come from: the Signal suite catalogue through pldmgr, or the app's own copies.
+constexpr int kSourceRow = 90;
+constexpr const char *kStartFromApp = "Sends the one in this app to etaHEN's ELF loader (port 9021)";
+constexpr const char *kStartFromCatalogue =
+    "pldmgr installs it from the Signal suite catalogue, or updates it, and starts it";
 enum BrokerId
 {
     kConnection = 100,
@@ -193,14 +198,15 @@ class PayloadsScreen final : public app::Concept
     {
         // Only where ps5-autoloader's list can be seen (etaHEN allows /data in the sandbox).
         autoload_found_ = signal::autoload_state().found;
+        form_.add_value(kSourceRow, "Updates", "Checking").description =
+            "With pldmgr running, the Signal suite catalogue; otherwise the copies in this app";
         for (const signal::Payload payload : kOrder)
         {
             const signal::PayloadInfo &info = signal::payload_info(payload);
             form_.add_header(info.title);
             form_.add_value(row_id(payload, kStatusRow), "Status", "Checking").description =
                 info.purpose;
-            form_.add_action(row_id(payload, kStartRow), "Start").description =
-                "Sends the one in this app to etaHEN's ELF loader (port 9021)";
+            form_.add_action(row_id(payload, kStartRow), "Start").description = kStartFromApp;
             if (autoload_found_)
             {
                 form_
@@ -247,19 +253,35 @@ class PayloadsScreen final : public app::Concept
     // The rows from the suite's latest answers, and a toast when a start finished.
     void show(const signal::Suite &suite)
     {
+        const signal::CatalogueState &catalogue = suite.catalogue();
+        form_.set_value_text(kSourceRow, !catalogue.checked ? "Checking"
+                                         : !catalogue.pldmgr
+                                             ? "This app's copies (pldmgr is not running)"
+                                         : catalogue.listed
+                                             ? "The Signal suite catalogue, through pldmgr"
+                                             : "This app's copies (pldmgr has not read the catalogue yet)");
         for (const signal::Payload payload : kOrder)
         {
             const signal::PayloadState &state = suite.state(payload);
             const std::string bundled = suite.bundled_version(payload);
+            // D23: with pldmgr running and the payload in the catalogue, that version counts.
+            const bool from_catalogue = catalogue.pldmgr && !state.catalogue_version.empty();
+            const std::string offered = from_catalogue ? state.catalogue_version : bundled;
             std::string text = !state.checked   ? "Checking"
                                : !state.running ? "Not running"
                                                 : "Runs";
             if (state.running && !state.version.empty())
                 text += " " + state.version;
-            const bool older = state.running && !bundled.empty() &&
-                               signal::compare_versions(state.version, bundled) < 0;
+            const bool older = state.running && !offered.empty() &&
+                               signal::compare_versions(state.version, offered) < 0;
             if (older)
-                text += ", app has " + bundled;
+                text += (from_catalogue ? ", catalogue has " : ", app has ") + offered;
+            // The boot chain keeps the app's copy (D23): say so when a newer one runs now.
+            const int autoload_row = row_id(payload, kAutoloadRow);
+            if (state.running && autoload_found_ && form_.row(autoload_row) &&
+                form_.toggle_value(autoload_row) && !bundled.empty() &&
+                signal::compare_versions(state.version, bundled) > 0)
+                text += "; after a restart ps5-autoloader starts " + bundled;
             if (state.busy)
                 text = state.running ? "Restarting" : "Starting";
             form_.set_value_text(row_id(payload, kStatusRow), text);
@@ -267,8 +289,10 @@ class PayloadsScreen final : public app::Concept
             {
                 row->label = state.running ? "Restart" : "Start";
                 row->text = older ? "Update" : "";
+                row->description = from_catalogue ? kStartFromCatalogue : kStartFromApp;
             }
-            form_.set_disabled(row_id(payload, kStartRow), state.busy || !suite.bundled(payload));
+            form_.set_disabled(row_id(payload, kStartRow),
+                               state.busy || (!from_catalogue && !suite.bundled(payload)));
             const std::size_t i = static_cast<std::size_t>(payload);
             if (state.serial != serial_[i])
             {

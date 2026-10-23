@@ -3,9 +3,14 @@
 //
 // ps5-exporter (port 9100), ps5-homeassistant (9160) and ps5-signal (9150) each
 // answer on loopback. A worker thread asks each of them every few seconds and
-// carries out a start (the app's ELF to the loader on 9021) or a restart (quit,
-// wait until it is gone, then start). It also reads and saves
-// ps5-homeassistant's broker settings. Screens read the results each frame.
+// carries out a start or a restart (quit, wait until it is gone, then start). It
+// also reads and saves ps5-homeassistant's broker settings. Screens read the
+// results each frame.
+//
+// Where a start comes from (decision log D22, D23): when pldmgr runs, the Signal
+// suite catalogue goes first: pldmgr installs or updates the payload from it and
+// starts its copy. Without pldmgr, or when that fails, the app's own ELF goes to
+// the loader on 9021.
 //
 //   signal::Suite &suite = signal::suite();
 //   suite.update(dt);
@@ -14,6 +19,7 @@
 
 #pragma once
 
+#include "pldmgr/http.hpp"
 #include "signal/autoload.hpp"
 #include "signal/service.hpp"
 
@@ -25,6 +31,7 @@
 #include <mutex>
 #include <pthread.h>
 #include <string>
+#include <string_view>
 
 namespace hui::signal
 {
@@ -62,6 +69,18 @@ struct PayloadState
     std::string message;  // the last start's outcome ("" while none)
     bool failed = false;  // ... and whether it failed
     unsigned serial = 0;  // counts every finished start or restart
+    // From pldmgr, while it runs: the Signal suite catalogue's version, and the copy pldmgr has
+    // installed ("" when none). Versions without a leading "v".
+    std::string catalogue_version;
+    std::string pldmgr_version;
+};
+
+// Whether the Signal suite catalogue can be used, through pldmgr.
+struct CatalogueState
+{
+    bool checked = false; // pldmgr was asked at least once
+    bool pldmgr = false;  // pldmgr answers, with an API this app speaks
+    bool listed = false;  // the catalogue is among pldmgr's repositories
 };
 
 // ps5-homeassistant's broker settings and connection, as its API reports them.
@@ -95,12 +114,16 @@ std::string broker_request(const BrokerConfig &config, const std::string &passwo
 // The body of a PUT /config that changes only whether Home Assistant may use rest mode and power
 // off.
 std::string power_request(bool on);
+// A version as this app compares it: "v0.3.0" gives "0.3.0".
+std::string plain_version(std::string_view version);
 
 class Suite
 {
   public:
     using TransportFactory = std::function<std::unique_ptr<Transport>(int port)>;
-    explicit Suite(TransportFactory factory);
+    // pldmgr's API on 8084; empty: no catalogue (tests that do not need it).
+    using PldmgrFactory = std::function<std::unique_ptr<pldmgr::Transport>()>;
+    explicit Suite(TransportFactory factory, PldmgrFactory pldmgr = {});
     ~Suite();
     Suite(const Suite &) = delete;
     Suite &operator=(const Suite &) = delete;
@@ -116,6 +139,10 @@ class Suite
     const BrokerState &broker() const
     {
         return broker_shown_;
+    }
+    const CatalogueState &catalogue() const
+    {
+        return catalogue_shown_;
     }
 
     // Whether this build carries the payload, and its version ("" when it has no marker).
@@ -136,11 +163,19 @@ class Suite
     void queue(std::function<void()> job);
     void poll_all();
     void poll(Payload payload);
+    void poll_catalogue();
     void launch(Payload payload, bool restart);
+    // The catalogue's copy through pldmgr: true when it was used (message and failed say how it
+    // went), false to fall back to the app's ELF (fallback says why).
+    bool launch_from_catalogue(Payload payload, bool restart, Transport &transport,
+                               std::string &message, bool &failed, std::string &fallback);
     void put_config(std::string body);
     const std::string *elf(Payload payload) const;
 
     TransportFactory factory_;
+    PldmgrFactory pldmgr_;
+    bool source_checked_ = false; // the catalogue added to pldmgr, once per pldmgr run (worker only)
+    int polls_ = 0;               // the catalogue is read every few polls (worker only)
     mutable std::mutex mutex_;
     std::condition_variable wake_;
     std::condition_variable idle_;
@@ -152,8 +187,10 @@ class Suite
     // Written by the worker under mutex_, copied for the screens in update().
     std::array<PayloadState, kPayloadCount> states_{};
     BrokerState broker_state_;
+    CatalogueState catalogue_state_;
     std::array<PayloadState, kPayloadCount> shown_{};
     BrokerState broker_shown_;
+    CatalogueState catalogue_shown_;
     float since_poll_ = 1000.0f;
     mutable std::array<int, kPayloadCount> elf_found_{-1, -1, -1};
     mutable std::array<std::string, kPayloadCount> elves_;
@@ -162,6 +199,6 @@ class Suite
 // The app's suite, made on first use.
 Suite &suite();
 // Replaces it, for tests.
-void install_suite(Suite::TransportFactory factory);
+void install_suite(Suite::TransportFactory factory, Suite::PldmgrFactory pldmgr = {});
 
 } // namespace hui::signal

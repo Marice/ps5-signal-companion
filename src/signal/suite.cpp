@@ -4,6 +4,9 @@
 #include "signal/suite.hpp"
 
 #include "core/save_file.hpp"
+#include "pldmgr/pldmgr.hpp"
+#include "pldmgr/repo_status.hpp"
+#include "pldmgr/suite.hpp"
 #include "signal/json.hpp"
 #include "signal/version.hpp"
 
@@ -18,6 +21,9 @@ namespace
 
 constexpr std::size_t kMaxPayload = 4u << 20;
 constexpr float kPollSeconds = 3.0f;
+constexpr int kPldmgrPort = 8084;
+// pldmgr is asked about the catalogue every this many polls (and after each start).
+constexpr int kCatalogueEvery = 10;
 
 const PayloadInfo kInfo[kPayloadCount] = {
     {"ps5-exporter", "Console statistics for Grafana and Home Assistant", kExporterPayload, 9100,
@@ -47,7 +53,68 @@ std::string quoted(const std::string &text)
     return out + "\"";
 }
 
+// The catalogue's id for a payload: the suite's ids are in the same order as Payload.
+const char *catalogue_id(Payload payload)
+{
+    return pldmgr::kSuiteIds[index(payload)];
+}
+
+const pldmgr::RepoPayload *catalogue_payload(const pldmgr::RepoSource &suite, Payload payload)
+{
+    for (const pldmgr::RepoPayload &p : suite.payloads)
+        if (p.key() == catalogue_id(payload))
+            return &p;
+    return nullptr;
+}
+
+// pldmgr's copy of a suite payload: from the catalogue first, else from another repository.
+const pldmgr::Payload *installed_payload(const pldmgr::PayloadList &list, Payload payload)
+{
+    const pldmgr::Payload *any = nullptr;
+    for (const pldmgr::Payload &p : list.items)
+    {
+        if (p.kind != "repo" || p.id != catalogue_id(payload))
+            continue;
+        if (pldmgr::is_suite_url(p.source_url))
+            return &p;
+        if (any == nullptr)
+            any = &p;
+    }
+    return any;
+}
+
+// Adds the catalogue to pldmgr's repositories, and lets pldmgr use more than its official one
+// (PayLoader's ensure_suite_source).
+void ensure_catalogue(pldmgr::Pldmgr &api)
+{
+    std::vector<pldmgr::Source> sources;
+    pldmgr::Config config;
+    if (!api.sources(sources).ok || !api.config(config).ok)
+        return;
+    bool listed = false;
+    for (const pldmgr::Source &source : sources)
+        listed = listed || pldmgr::is_suite_url(source.url);
+    if (!listed)
+    {
+        std::string name;
+        api.add_source(pldmgr::kSuiteUrl, name);
+    }
+    if (!config.multi_sources)
+    {
+        pldmgr::ConfigChange change;
+        change.multi_sources = true;
+        api.save_config(change);
+    }
+}
+
 } // namespace
+
+std::string plain_version(std::string_view version)
+{
+    if (!version.empty() && (version.front() == 'v' || version.front() == 'V'))
+        version.remove_prefix(1);
+    return std::string(version);
+}
 
 const PayloadInfo &payload_info(Payload payload)
 {
@@ -88,7 +155,8 @@ std::string power_request(bool on)
     return on ? "{\"power_actions\":true}" : "{\"power_actions\":false}";
 }
 
-Suite::Suite(TransportFactory factory) : factory_(std::move(factory))
+Suite::Suite(TransportFactory factory, PldmgrFactory pldmgr)
+    : factory_(std::move(factory)), pldmgr_(std::move(pldmgr))
 {
     started_ = pthread_create(&thread_, nullptr, &Suite::thread_main, this) == 0;
 }
@@ -153,6 +221,7 @@ void Suite::update(float dt)
     std::lock_guard<std::mutex> lock(mutex_);
     shown_ = states_;
     broker_shown_ = broker_state_;
+    catalogue_shown_ = catalogue_state_;
 }
 
 void Suite::refresh()
@@ -168,8 +237,56 @@ void Suite::refresh()
 
 void Suite::poll_all()
 {
+    if (polls_++ % kCatalogueEvery == 0)
+        poll_catalogue();
     for (std::size_t i = 0; i < kPayloadCount; ++i)
         poll(static_cast<Payload>(i));
+}
+
+void Suite::poll_catalogue()
+{
+    if (!pldmgr_)
+        return;
+    pldmgr::Pldmgr api(pldmgr_());
+    CatalogueState catalogue;
+    catalogue.checked = true;
+    std::string version;
+    bool supported = false;
+    std::array<std::string, kPayloadCount> listed{}, installed{};
+    if (api.version(version, supported).ok && supported)
+    {
+        catalogue.pldmgr = true;
+        if (!source_checked_)
+        {
+            ensure_catalogue(api);
+            source_checked_ = true;
+        }
+        std::vector<pldmgr::RepoSource> sources;
+        pldmgr::PayloadList have;
+        const pldmgr::RepoSource *suite =
+            api.repository(false, sources).ok ? pldmgr::suite_source(sources) : nullptr;
+        const bool have_list = api.payloads(have).ok;
+        catalogue.listed = suite != nullptr;
+        for (std::size_t i = 0; i < kPayloadCount; ++i)
+        {
+            const Payload payload = static_cast<Payload>(i);
+            const pldmgr::RepoPayload *p = suite ? catalogue_payload(*suite, payload) : nullptr;
+            const pldmgr::Payload *copy = have_list ? installed_payload(have, payload) : nullptr;
+            listed[i] = p ? plain_version(p->version) : std::string();
+            installed[i] = copy ? plain_version(copy->version) : std::string();
+        }
+    }
+    else
+    {
+        source_checked_ = false; // a pldmgr that comes back may have lost the source
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    catalogue_state_ = catalogue;
+    for (std::size_t i = 0; i < kPayloadCount; ++i)
+    {
+        states_[i].catalogue_version = listed[i];
+        states_[i].pldmgr_version = installed[i];
+    }
 }
 
 void Suite::poll(Payload payload)
@@ -285,14 +402,19 @@ void Suite::launch(Payload payload, bool restart)
             const PayloadInfo &info = payload_info(payload);
             std::string message;
             bool failed = false;
-            if (data == nullptr)
+            std::string fallback;
+            const std::unique_ptr<Transport> transport = factory_(info.port);
+            if (launch_from_catalogue(payload, restart, *transport, message, failed, fallback))
+            {
+                // pldmgr installed and started the catalogue's copy (or said why not).
+            }
+            else if (data == nullptr)
             {
                 message = std::string("This build does not include ") + info.file.name;
                 failed = true;
             }
             else
             {
-                const std::unique_ptr<Transport> transport = factory_(info.port);
                 if (restart)
                 {
                     transport->send(info.quit_method, info.quit_path, "");
@@ -319,6 +441,8 @@ void Suite::launch(Payload payload, bool restart)
                     message = up ? std::string(info.title) + " runs"
                                  : std::string(info.title) + " did not answer";
                     failed = !up;
+                    if (up && !fallback.empty())
+                        message += " (the app's copy: " + fallback + ")";
                 }
             }
             {
@@ -329,8 +453,80 @@ void Suite::launch(Payload payload, bool restart)
                 state.failed = failed;
                 state.serial++;
             }
+            poll_catalogue();
             poll(payload);
         });
+}
+
+bool Suite::launch_from_catalogue(Payload payload, bool restart, Transport &transport,
+                                  std::string &message, bool &failed, std::string &fallback)
+{
+    if (!pldmgr_)
+        return false;
+    pldmgr::Pldmgr api(pldmgr_());
+    std::string version;
+    bool supported = false;
+    if (!api.version(version, supported).ok || !supported)
+        return false; // no pldmgr: the app's copy, as before
+    std::vector<pldmgr::RepoSource> sources;
+    pldmgr::PayloadList have;
+    const pldmgr::RepoSource *suite =
+        api.repository(false, sources).ok ? pldmgr::suite_source(sources) : nullptr;
+    const pldmgr::RepoPayload *wanted = suite ? catalogue_payload(*suite, payload) : nullptr;
+    if (wanted == nullptr || !api.payloads(have).ok)
+    {
+        fallback = "pldmgr does not list the Signal suite";
+        return false;
+    }
+    const PayloadInfo &info = payload_info(payload);
+    const pldmgr::RepoStatus status = pldmgr::repo_status(*wanted, suite->url, have);
+    std::string slot = status.installed ? status.installed->slot : std::string();
+    if (status.kind != pldmgr::RepoStatus::Kind::installed)
+    {
+        pldmgr::InstallResult result;
+        const pldmgr::Outcome done =
+            api.install(*wanted, suite->url, pldmgr::InstallMode::normal, "", result);
+        if (done.ok && result.conflict)
+        {
+            // pldmgr's own question; PayLoader can answer it. Nothing is replaced from here.
+            message = std::string(info.title) + " is installed in pldmgr from another repository";
+            failed = true;
+            return true;
+        }
+        if (!done.ok || result.slot.empty())
+        {
+            fallback = "pldmgr could not install " + plain_version(wanted->version) +
+                       (done.error.empty() ? std::string() : ": " + done.error);
+            return false;
+        }
+        slot = result.slot;
+    }
+    if (restart)
+    {
+        transport.send(info.quit_method, info.quit_path, "");
+        for (int i = 0; i < 25 && transport.send(info.status_method, info.status_path, "").status > 0;
+             ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    const pldmgr::Outcome started = api.launch(slot);
+    if (!started.ok)
+    {
+        message = std::string(info.title) + " did not start through pldmgr" +
+                  (started.error.empty() ? std::string() : ": " + started.error);
+        failed = true;
+        return true;
+    }
+    bool up = false;
+    for (int i = 0; i < 40 && !up; ++i)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        up = transport.send(info.status_method, info.status_path, "").status > 0;
+    }
+    message = up ? std::string(info.title) + " " + plain_version(wanted->version) +
+                       " runs, from the Signal suite catalogue"
+                 : std::string(info.title) + " did not answer";
+    failed = !up;
+    return true;
 }
 
 void Suite::save_broker(const BrokerConfig &config, const std::string &password)
@@ -385,13 +581,14 @@ Suite &suite()
 {
     std::unique_ptr<Suite> &slot = suite_slot();
     if (!slot)
-        slot = std::make_unique<Suite>([](int port) { return make_http_transport(port); });
+        slot = std::make_unique<Suite>([](int port) { return make_http_transport(port); },
+                                       [] { return pldmgr::make_loopback_transport(kPldmgrPort); });
     return *slot;
 }
 
-void install_suite(Suite::TransportFactory factory)
+void install_suite(Suite::TransportFactory factory, Suite::PldmgrFactory pldmgr)
 {
-    suite_slot() = std::make_unique<Suite>(std::move(factory));
+    suite_slot() = std::make_unique<Suite>(std::move(factory), std::move(pldmgr));
 }
 
 } // namespace hui::signal

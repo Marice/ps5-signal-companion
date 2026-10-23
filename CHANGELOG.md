@@ -4,6 +4,17 @@ All notable changes to Signal Companion are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Versions are the
 app's `contentVersion`.
 
+## [Unreleased]
+
+### Added
+- With pldmgr running, the Payloads screen uses the Signal suite catalogue: it adds the catalogue to pldmgr, shows its
+  version ("catalogue has 0.3.0"), and Start or Update installs or updates the payload through pldmgr and starts
+  pldmgr's copy. Without pldmgr, or when pldmgr cannot install it, the app's own copy as before. An "Updates" row says
+  which source is used. ps5-autoloader's list keeps the app's copy; the Status row says when a newer version runs.
+
+### Changed
+- Carries ps5-homeassistant 0.3.0 (live events, payload status, starting a game).
+
 ## [v00.004.002] - 2026-10-19
 
 ### Changed
