@@ -26,6 +26,16 @@ and puts them in ps5-autoloader's list in that order, 3 seconds apart. It also s
 (address, port, user and password), and whether Home Assistant may put the console in rest mode or turn it off. That
 is off by default; power off ends the jailbreak until you run the exploit again.
 
+**Where updates come from:** when [pldmgr](https://github.com/itsPLK/ps5-payload-manager) (itsPLK's Payload Manager)
+runs, the Payloads screen uses the [Signal suite catalogue](https://github.com/Marice/ps5-signal-suite): the app adds
+it to pldmgr's repositories and shows the catalogue's version. Each payload has an **Update** button: it is enabled
+when something newer exists ("To 0.3.0", else "Up to date"), lets pldmgr install the newest and restarts the payload.
+**Start** and **Restart** start the version that is there: pldmgr's copy when pldmgr has one, else the app's. Without
+pldmgr the app uses the copies it carries. ps5-autoloader's list keeps the
+app's copy: after a restart of the console it starts that version again, until a new app version carries the newer
+one; the Status row says so. The code that talks to pldmgr comes from [PayLoader](https://github.com/Marice/ps5-payloader)
+(`src/pldmgr/`); a fix there belongs here too.
+
 **Updating:** install the new version of the app and open it. When ps5-autoloader starts ps5-signal, the app replaces
 an older copy in its folder by itself and says so. When an older ps5-signal runs, the Status screen says so: choose
 **Restart ps5-signal** to use the new one. A copy from before ps5-signal 0.2.0 counts as older; a newer one stays.
