@@ -7,10 +7,10 @@
 // also reads and saves ps5-homeassistant's broker settings. Screens read the
 // results each frame.
 //
-// Where a start comes from (decision log D22, D23): when pldmgr runs, the Signal
-// suite catalogue goes first: pldmgr installs or updates the payload from it and
-// starts its copy. Without pldmgr, or when that fails, the app's own ELF goes to
-// the loader on 9021.
+// Where a start comes from (decision log D22, D23, D25): Start and Restart start the
+// version that is there: pldmgr's installed copy when pldmgr runs and has one, else
+// the app's own ELF (to the loader on 9021). Update installs the newest first: from
+// the Signal suite catalogue through pldmgr, else the app's copy, then restarts.
 //
 //   signal::Suite &suite = signal::suite();
 //   suite.update(dt);
@@ -151,6 +151,8 @@ class Suite
 
     void start(Payload payload);
     void restart(Payload payload);
+    // Installs the newest through pldmgr (else the app's copy) and restarts it (D25).
+    void upgrade(Payload payload);
     void save_broker(const BrokerConfig &config, const std::string &password);
     void save_power_actions(bool on);
 
@@ -164,10 +166,11 @@ class Suite
     void poll_all();
     void poll(Payload payload);
     void poll_catalogue();
-    void launch(Payload payload, bool restart);
-    // The catalogue's copy through pldmgr: true when it was used (message and failed say how it
-    // went), false to fall back to the app's ELF (fallback says why).
-    bool launch_from_catalogue(Payload payload, bool restart, Transport &transport,
+    void launch(Payload payload, bool restart, bool upgrade);
+    // pldmgr's copy (installed or updated from the catalogue first when upgrade): true when it
+    // was used (message and failed say how it went), false to fall back to the app's ELF
+    // (fallback says why, or stays empty when there was nothing to use).
+    bool launch_from_catalogue(Payload payload, bool restart, bool upgrade, Transport &transport,
                                std::string &message, bool &failed, std::string &fallback);
     void put_config(std::string body);
     const std::string *elf(Payload payload) const;

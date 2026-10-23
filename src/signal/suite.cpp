@@ -376,15 +376,25 @@ std::string Suite::bundled_version(Payload payload) const
 
 void Suite::start(Payload payload)
 {
-    launch(payload, false);
+    launch(payload, false, false);
 }
 
 void Suite::restart(Payload payload)
 {
-    launch(payload, true);
+    launch(payload, true, false);
 }
 
-void Suite::launch(Payload payload, bool restart)
+void Suite::upgrade(Payload payload)
+{
+    bool running = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        running = states_[index(payload)].running;
+    }
+    launch(payload, running, true);
+}
+
+void Suite::launch(Payload payload, bool restart, bool upgrade)
 {
     const std::string *data = elf(payload);
     {
@@ -397,14 +407,15 @@ void Suite::launch(Payload payload, bool restart)
         state.failed = false;
     }
     queue(
-        [this, payload, restart, data]
+        [this, payload, restart, upgrade, data]
         {
             const PayloadInfo &info = payload_info(payload);
             std::string message;
             bool failed = false;
             std::string fallback;
             const std::unique_ptr<Transport> transport = factory_(info.port);
-            if (launch_from_catalogue(payload, restart, *transport, message, failed, fallback))
+            if (launch_from_catalogue(payload, restart, upgrade, *transport, message, failed,
+                                      fallback))
             {
                 // pldmgr installed and started the catalogue's copy (or said why not).
             }
@@ -458,8 +469,9 @@ void Suite::launch(Payload payload, bool restart)
         });
 }
 
-bool Suite::launch_from_catalogue(Payload payload, bool restart, Transport &transport,
-                                  std::string &message, bool &failed, std::string &fallback)
+bool Suite::launch_from_catalogue(Payload payload, bool restart, bool upgrade,
+                                  Transport &transport, std::string &message, bool &failed,
+                                  std::string &fallback)
 {
     if (!pldmgr_)
         return false;
@@ -475,13 +487,18 @@ bool Suite::launch_from_catalogue(Payload payload, bool restart, Transport &tran
     const pldmgr::RepoPayload *wanted = suite ? catalogue_payload(*suite, payload) : nullptr;
     if (wanted == nullptr || !api.payloads(have).ok)
     {
-        fallback = "pldmgr does not list the Signal suite";
+        if (upgrade)
+            fallback = "pldmgr does not list the Signal suite";
         return false;
     }
     const PayloadInfo &info = payload_info(payload);
     const pldmgr::RepoStatus status = pldmgr::repo_status(*wanted, suite->url, have);
     std::string slot = status.installed ? status.installed->slot : std::string();
-    if (status.kind != pldmgr::RepoStatus::Kind::installed)
+    std::string copy_version = status.installed ? plain_version(status.installed->version)
+                                                : plain_version(wanted->version);
+    if (!upgrade && slot.empty())
+        return false; // pldmgr has no copy: Start uses the app's, without installing (D25)
+    if (upgrade && status.kind != pldmgr::RepoStatus::Kind::installed)
     {
         pldmgr::InstallResult result;
         const pldmgr::Outcome done =
@@ -500,6 +517,7 @@ bool Suite::launch_from_catalogue(Payload payload, bool restart, Transport &tran
             return false;
         }
         slot = result.slot;
+        copy_version = plain_version(wanted->version);
     }
     if (restart)
     {
@@ -522,8 +540,8 @@ bool Suite::launch_from_catalogue(Payload payload, bool restart, Transport &tran
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
         up = transport.send(info.status_method, info.status_path, "").status > 0;
     }
-    message = up ? std::string(info.title) + " " + plain_version(wanted->version) +
-                       " runs, from the Signal suite catalogue"
+    message = up ? std::string(info.title) + " " + copy_version + " runs, " +
+                       (upgrade ? "from the Signal suite catalogue" : "pldmgr's copy")
                  : std::string(info.title) + " did not answer";
     failed = !up;
     return true;

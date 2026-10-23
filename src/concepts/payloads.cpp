@@ -40,12 +40,15 @@ constexpr Rect kSide{1010.0f, kTop + 10.0f, kRight - 1010.0f, 600.0f};
 constexpr int kStatusRow = 1;
 constexpr int kStartRow = 2;
 constexpr int kAutoloadRow = 3;
+constexpr int kUpdateRow = 4;
 constexpr int kBlock = 10;
 // Where updates come from: the Signal suite catalogue through pldmgr, or the app's own copies.
 constexpr int kSourceRow = 90;
 constexpr const char *kStartFromApp = "Sends the one in this app to etaHEN's ELF loader (port 9021)";
-constexpr const char *kStartFromCatalogue =
-    "pldmgr installs it from the Signal suite catalogue, or updates it, and starts it";
+constexpr const char *kStartFromPldmgr = "Starts the copy pldmgr has installed";
+constexpr const char *kUpdateFromCatalogue =
+    "pldmgr installs the newest from the Signal suite catalogue, then it restarts";
+constexpr const char *kUpdateFromApp = "Starts the newer copy this app carries";
 enum BrokerId
 {
     kConnection = 100,
@@ -206,6 +209,8 @@ class PayloadsScreen final : public app::Concept
             form_.add_header(info.title);
             form_.add_value(row_id(payload, kStatusRow), "Status", "Checking").description =
                 info.purpose;
+            form_.add_action(row_id(payload, kUpdateRow), "Update").description =
+                kUpdateFromCatalogue;
             form_.add_action(row_id(payload, kStartRow), "Start").description = kStartFromApp;
             if (autoload_found_)
             {
@@ -276,6 +281,11 @@ class PayloadsScreen final : public app::Concept
                                signal::compare_versions(state.version, offered) < 0;
             if (older)
                 text += (from_catalogue ? ", catalogue has " : ", app has ") + offered;
+            // Update (D25): something newer than what runs; not running, a newer catalogue version
+            // than pldmgr's copy (Start covers the app's own copy).
+            const bool newer =
+                older || (!state.running && from_catalogue &&
+                          signal::compare_versions(state.pldmgr_version, offered) < 0);
             // The boot chain keeps the app's copy (D23): say so when a newer one runs now.
             const int autoload_row = row_id(payload, kAutoloadRow);
             if (state.running && autoload_found_ && form_.row(autoload_row) &&
@@ -285,14 +295,21 @@ class PayloadsScreen final : public app::Concept
             if (state.busy)
                 text = state.running ? "Restarting" : "Starting";
             form_.set_value_text(row_id(payload, kStatusRow), text);
+            const bool pldmgr_copy = catalogue.pldmgr && !state.pldmgr_version.empty();
             if (ui::FormRow *row = form_.row(row_id(payload, kStartRow)))
             {
                 row->label = state.running ? "Restart" : "Start";
-                row->text = older ? "Update" : "";
-                row->description = from_catalogue ? kStartFromCatalogue : kStartFromApp;
+                row->text = pldmgr_copy ? state.pldmgr_version : bundled;
+                row->description = pldmgr_copy ? kStartFromPldmgr : kStartFromApp;
             }
             form_.set_disabled(row_id(payload, kStartRow),
-                               state.busy || (!from_catalogue && !suite.bundled(payload)));
+                               state.busy || (!pldmgr_copy && !suite.bundled(payload)));
+            if (ui::FormRow *row = form_.row(row_id(payload, kUpdateRow)))
+            {
+                row->text = !state.checked ? "" : newer ? "To " + offered : "Up to date";
+                row->description = from_catalogue ? kUpdateFromCatalogue : kUpdateFromApp;
+            }
+            form_.set_disabled(row_id(payload, kUpdateRow), state.busy || !newer);
             const std::size_t i = static_cast<std::size_t>(payload);
             if (state.serial != serial_[i])
             {
@@ -354,6 +371,11 @@ class PayloadsScreen final : public app::Concept
                     suite.restart(payload);
                 else
                     suite.start(payload);
+                return;
+            }
+            if (id == row_id(payload, kUpdateRow))
+            {
+                suite.upgrade(payload);
                 return;
             }
         }

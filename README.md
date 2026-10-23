@@ -28,8 +28,10 @@ is off by default; power off ends the jailbreak until you run the exploit again.
 
 **Where updates come from:** when [pldmgr](https://github.com/itsPLK/ps5-payload-manager) (itsPLK's Payload Manager)
 runs, the Payloads screen uses the [Signal suite catalogue](https://github.com/Marice/ps5-signal-suite): the app adds
-it to pldmgr's repositories, shows the catalogue's version, and **Start** or **Update** lets pldmgr install or update
-the payload and start pldmgr's copy. Without pldmgr the app uses the copies it carries. ps5-autoloader's list keeps the
+it to pldmgr's repositories and shows the catalogue's version. Each payload has an **Update** button: it is enabled
+when something newer exists ("To 0.3.0", else "Up to date"), lets pldmgr install the newest and restarts the payload.
+**Start** and **Restart** start the version that is there: pldmgr's copy when pldmgr has one, else the app's. Without
+pldmgr the app uses the copies it carries. ps5-autoloader's list keeps the
 app's copy: after a restart of the console it starts that version again, until a new app version carries the newer
 one; the Status row says so. The code that talks to pldmgr comes from [PayLoader](https://github.com/Marice/ps5-payloader)
 (`src/pldmgr/`); a fix there belongs here too.

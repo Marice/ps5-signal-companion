@@ -124,15 +124,19 @@ class SuiteCatalogueTest : public ::testing::Test
         return s;
     }
 
-    // Starts ps5-homeassistant again, as the screen's Update does, and waits for the outcome.
-    const PayloadState &update_homeassistant(Suite &s)
+    // Updates ps5-homeassistant (the screen's Update) or restarts it (Restart), and waits for the
+    // outcome. After an update the new copy answers with the catalogue's version.
+    const PayloadState &update_homeassistant(Suite &s, bool upgrade = true)
     {
+        if (upgrade)
         {
-            // pldmgr's next answers: what it has after the install, and the new copy runs.
             std::lock_guard<std::mutex> lock(ports_.mutex);
             ports_.version = ports_.next_version;
         }
-        s.restart(Payload::homeassistant);
+        if (upgrade)
+            s.upgrade(Payload::homeassistant);
+        else
+            s.restart(Payload::homeassistant);
         s.wait_idle();
         s.update(0.0f);
         return s.state(Payload::homeassistant);
@@ -197,6 +201,28 @@ TEST_F(SuiteCatalogueTest, StartsPldmgrsCopyWhenItIsUpToDate)
     const auto launch = fake_.last("POST", "/loadpayload:");
     ASSERT_TRUE(launch.has_value());
     EXPECT_NE(launch->target.find("ps5-homeassistant@5u1t3000"), std::string::npos);
+}
+
+TEST_F(SuiteCatalogueTest, RestartStartsPldmgrsCopyWithoutUpdating)
+{
+    Suite &s = make();
+    const PayloadState &ha = update_homeassistant(s, false);
+    EXPECT_FALSE(fake_.last("POST", "/repository_install").has_value());
+    const auto launch = fake_.last("POST", "/loadpayload:");
+    ASSERT_TRUE(launch.has_value());
+    EXPECT_NE(launch->target.find("ps5-homeassistant@5u1t3000"), std::string::npos);
+    EXPECT_NE(ha.message.find("0.2.1 runs, pldmgr's copy"), std::string::npos);
+}
+
+TEST_F(SuiteCatalogueTest, RestartUsesTheAppsCopyWhenPldmgrHasNone)
+{
+    fake_.reply("GET /list_payloads", 200, R"({"self":{},"items":[],"usb":[]})");
+    Suite &s = make();
+    const PayloadState &ha = update_homeassistant(s, false);
+    EXPECT_FALSE(fake_.last("POST", "/repository_install").has_value());
+    EXPECT_FALSE(fake_.last("POST", "/loadpayload:").has_value());
+    // The app's path (no ELF in the test's assets), without a word about the catalogue.
+    EXPECT_NE(ha.message.find("does not include ps5-homeassistant.elf"), std::string::npos);
 }
 
 TEST_F(SuiteCatalogueTest, LeavesAConflictToPldmgr)

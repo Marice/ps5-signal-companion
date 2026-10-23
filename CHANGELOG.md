@@ -7,10 +7,12 @@ app's `contentVersion`.
 ## [Unreleased]
 
 ### Added
-- With pldmgr running, the Payloads screen uses the Signal suite catalogue: it adds the catalogue to pldmgr, shows its
-  version ("catalogue has 0.3.0"), and Start or Update installs or updates the payload through pldmgr and starts
-  pldmgr's copy. Without pldmgr, or when pldmgr cannot install it, the app's own copy as before. An "Updates" row says
-  which source is used. ps5-autoloader's list keeps the app's copy; the Status row says when a newer version runs.
+- With pldmgr running, the Payloads screen uses the Signal suite catalogue: it adds the catalogue to pldmgr and shows
+  its version ("catalogue has 0.3.0"). An "Updates" row says which source is used. ps5-autoloader's list keeps the
+  app's copy; the Status row says when a newer version runs.
+- An Update button per payload: enabled when something newer exists ("To 0.3.0", else "Up to date"); it installs the
+  newest through pldmgr (else the app's copy) and restarts the payload. Start and Restart start the version that is
+  there (pldmgr's copy, else the app's) without updating.
 
 ### Changed
 - Carries ps5-homeassistant 0.3.0 (live events, payload status, starting a game).
