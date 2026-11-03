@@ -1,3 +1,5 @@
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/H5L629ZHNX)
+
 # Signal Companion
 
 A PS5 homebrew app (PPSA69426) for [ps5-signal](https://github.com/Marice/ps5-signal), the background service
