@@ -4,6 +4,12 @@ All notable changes to Signal Companion are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Versions are the
 app's `contentVersion`.
 
+## [Unreleased]
+
+### Added
+- Support screen, after Payloads: a QR code to Ko-fi, for those who'd like to buy me a coffee or a beer. It works
+  without ps5-signal as well.
+
 ## [v00.005.000] - 2026-10-23
 
 ### Added

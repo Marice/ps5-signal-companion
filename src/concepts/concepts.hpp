@@ -6,7 +6,9 @@
 
 #include "app/concept.hpp"
 
+#include <cstdint>
 #include <memory>
+#include <string>
 
 namespace hui::concepts
 {
@@ -18,5 +20,8 @@ std::unique_ptr<app::Concept> make_status(app::Context &context);
 std::unique_ptr<app::Concept> make_colour(app::Context &context);
 std::unique_ptr<app::Concept> make_startup(app::Context &context);
 std::unique_ptr<app::Concept> make_payloads(app::Context &context);
+std::unique_ptr<app::Concept> make_support(app::Context &context);
+// The Support screen's QR code: a PNG and how to make it a texture (GL work, done by the app).
+void set_support_qr(std::uint32_t (*load_png)(const std::string &path), std::string path);
 
 } // namespace hui::concepts

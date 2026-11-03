@@ -21,7 +21,9 @@
 #include "app/tour.hpp"
 #include "core/save_file.hpp"
 #include "demo/catalog.hpp"
+#include "concepts/concepts.hpp"
 #include "gfx/gl_program.hpp"
+#include "gfx/image.hpp"
 #include "gfx/renderer.hpp"
 #include "manifest.hpp"
 #include "ui/fonts.hpp"
@@ -182,6 +184,7 @@ int main(int argc, char **argv)
         !load_font(renderer, assets + "/fonts/press-start-2p.huifont", &pixel, &fonts.pixel) ||
         !load_font(renderer, assets + "/fonts/patrick-hand.huifont", &hand, &fonts.hand))
         return 1;
+    hui::concepts::set_support_qr(hui::gfx::load_png_texture, assets + "/support/ko-fi-qr.png");
     hui::demo::Catalog catalog;
     if (!catalog.build_covers(renderer, fonts))
     {
